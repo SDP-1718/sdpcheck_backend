@@ -1,0 +1,35 @@
+name: Discord PR Notification
+
+on:
+  pull_request:
+    types: [opened, closed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_USER: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          if [ "$PR_ACTION" = "opened" ]; then
+            MESSAGE="🟢 PR Opened | #${PR_NUMBER} ${PR_TITLE} | 작성자: ${PR_USER} | ${PR_URL}"
+          elif [ "$PR_MERGED" = "true" ]; then
+            MESSAGE="🟣 PR Merged | #${PR_NUMBER} ${PR_TITLE} | 작성자: ${PR_USER} | ${PR_URL}"
+          else
+            MESSAGE="🔴 PR Closed | #${PR_NUMBER} ${PR_TITLE} | 작성자: ${PR_USER} | ${PR_URL}"
+          fi
+
+          jq -n --arg content "$MESSAGE" '{content: $content}' > payload.json
+
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$DISCORD_WEBHOOK_URL"

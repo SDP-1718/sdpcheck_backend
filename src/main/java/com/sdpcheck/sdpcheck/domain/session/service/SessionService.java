@@ -76,6 +76,19 @@ public class SessionService {
 		return UpdateSessionResDTO.from(session);
 	}
 
+	@Transactional
+	public void deleteSession(Long sessionId) {
+		if (sessionId == null) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
+		}
+
+		Session session = sessionRepository.findById(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+
+		validateDeletable(session);
+		sessionRepository.delete(session);
+	}
+
 	private void validateRequiredFields(CreateSessionReqDTO request) {
 		if (request == null
 				|| isBlank(request.title())
@@ -146,6 +159,18 @@ public class SessionService {
 		}
 		if (hasAlreadyStarted(session)) {
 			throw new SessionException(SessionErrorCode.SESSION_ALREADY_STARTED);
+		}
+	}
+
+	private void validateDeletable(Session session) {
+		if (session.getStatus() == SessionStatus.IN_PROGRESS) {
+			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_STARTED);
+		}
+		if (session.getStatus() != SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_ENDED);
+		}
+		if (hasAlreadyStarted(session)) {
+			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_STARTED);
 		}
 	}
 

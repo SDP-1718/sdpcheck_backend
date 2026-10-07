@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -49,6 +50,8 @@ public class Session {
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	private LocalDateTime updatedAt;
+
 	private Session(String title, LocalDate sessionDate, LocalTime startTime, LocalTime endTime, String location) {
 		this.title = title;
 		this.sessionDate = sessionDate;
@@ -68,8 +71,22 @@ public class Session {
 		return new Session(title, sessionDate, startTime, endTime, location);
 	}
 
+	public void update(String title, LocalDate sessionDate, LocalTime startTime, LocalTime endTime, String location) {
+		this.title = title;
+		this.sessionDate = sessionDate;
+		this.startTime = startTime;
+		this.endTime = endTime;
+		this.location = location;
+		this.updatedAt = LocalDateTime.now();
+	}
+
 	@PrePersist
 	private void prePersist() {
 		this.createdAt = LocalDateTime.now();
+	}
+
+	@PreUpdate
+	private void preUpdate() {
+		this.updatedAt = LocalDateTime.now();
 	}
 }

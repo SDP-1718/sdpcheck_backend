@@ -1,11 +1,15 @@
 package com.sdpcheck.sdpcheck.domain.session.controller;
 
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +21,8 @@ public class AdminSessionController {
 
 	private static final String CREATE_SESSION_CODE = "SESSION2011";
 	private static final String CREATE_SESSION_MESSAGE = "세션이 생성되었습니다.";
+	private static final String UPDATE_SESSION_CODE = "SESSION2004";
+	private static final String UPDATE_SESSION_MESSAGE = "세션 정보가 수정되었습니다.";
 
 	private final SessionService sessionService;
 
@@ -30,5 +36,15 @@ public class AdminSessionController {
 
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(ApiResponse.of(CREATE_SESSION_CODE, CREATE_SESSION_MESSAGE, response));
+	}
+
+	@PatchMapping("/{sessionId}")
+	public ResponseEntity<ApiResponse<UpdateSessionResDTO>> updateSession(
+			@PathVariable Long sessionId,
+			@RequestBody(required = false) UpdateSessionReqDTO request
+	) {
+		UpdateSessionResDTO response = sessionService.updateSession(sessionId, request);
+
+		return ResponseEntity.ok(ApiResponse.of(UPDATE_SESSION_CODE, UPDATE_SESSION_MESSAGE, response));
 	}
 }

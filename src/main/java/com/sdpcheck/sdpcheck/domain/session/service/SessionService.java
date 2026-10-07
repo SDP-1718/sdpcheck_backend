@@ -3,6 +3,7 @@ package com.sdpcheck.sdpcheck.domain.session.service;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
@@ -89,6 +90,21 @@ public class SessionService {
 		sessionRepository.delete(session);
 	}
 
+	@Transactional
+	public StartSessionResDTO startSession(Long sessionId) {
+		if (sessionId == null) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
+		}
+
+		Session session = sessionRepository.findById(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+
+		validateStartable(session);
+		session.start(LocalDateTime.now());
+
+		return StartSessionResDTO.from(session);
+	}
+
 	private void validateRequiredFields(CreateSessionReqDTO request) {
 		if (request == null
 				|| isBlank(request.title())
@@ -171,6 +187,15 @@ public class SessionService {
 		}
 		if (hasAlreadyStarted(session)) {
 			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_STARTED);
+		}
+	}
+
+	private void validateStartable(Session session) {
+		if (session.getStatus() == SessionStatus.IN_PROGRESS) {
+			throw new SessionException(SessionErrorCode.SESSION_ALREADY_STARTED);
+		}
+		if (session.getStatus() != SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_ALREADY_ENDED);
 		}
 	}
 

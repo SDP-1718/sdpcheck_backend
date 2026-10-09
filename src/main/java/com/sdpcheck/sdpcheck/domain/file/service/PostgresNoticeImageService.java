@@ -127,7 +127,8 @@ public class PostgresNoticeImageService implements NoticeImageService {
                     FROM uploaded_files f
                     JOIN notice_images ni ON ni.file_id = f.id
                     JOIN notices n ON n.id = ni.notice_id
-                    WHERE f.id = :id AND f.status = 'ATTACHED' AND n.deleted_at IS NULL
+                    WHERE f.id = :id AND f.status = 'ATTACHED'
+                          AND n.deleted_at IS NULL AND n.is_published = true
                     """, new MapSqlParameterSource("id", fileId), (rs, rowNum) ->
                     new ImageContent(rs.getBytes("data"), rs.getString("content_type")));
         } catch (EmptyResultDataAccessException exception) {

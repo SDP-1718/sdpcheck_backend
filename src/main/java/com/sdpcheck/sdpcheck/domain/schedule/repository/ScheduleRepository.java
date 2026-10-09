@@ -49,12 +49,14 @@ public class ScheduleRepository {
                                    int page, int size) {
         var query = filter(from, to, type);
         query.params().addValue("size", size).addValue("offset", (long) (page - 1) * size);
-        return jdbc.query("""
+        String sql = """
                 SELECT id, type, title, starts_at, location, version
-                FROM schedule_items WHERE """ + query.where() + """
+                FROM schedule_items
+                WHERE %s
                 ORDER BY starts_at ASC, type ASC, id ASC
                 LIMIT :size OFFSET :offset
-                """, query.params(), (rs, rowNum) -> {
+                """.formatted(query.where());
+        return jdbc.query(sql, query.params(), (rs, rowNum) -> {
             String itemType = rs.getString("type");
             Integer version = rs.getObject("version", Integer.class);
             return new ScheduleItem(rs.getObject("id", UUID.class), itemType, rs.getString("title"),

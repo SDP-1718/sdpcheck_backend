@@ -50,6 +50,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(publicEndpoints).permitAll()
+                        .requestMatchers(paths.matcher("/api/v1/admin/**")).hasRole("ADMIN")
+                        .requestMatchers(paths.matcher(HttpMethod.POST, "/api/v1/files")).hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, memberRepository,
                                 exceptionHandler, publicEndpoints),

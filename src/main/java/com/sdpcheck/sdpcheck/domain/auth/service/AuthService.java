@@ -1,6 +1,7 @@
 package com.sdpcheck.sdpcheck.domain.auth.service;
 
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.LoginRequest;
+import com.sdpcheck.sdpcheck.domain.auth.dto.request.OnboardingRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.SignupRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.*;
 import com.sdpcheck.sdpcheck.domain.auth.entity.RefreshToken;
@@ -11,6 +12,7 @@ import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.security.jwt.JwtProvider;
+import com.sdpcheck.sdpcheck.domain.auth.client.KakaoClient;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,6 +32,17 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final KakaoClient kakaoClient;
+
+    @Transactional
+    public String kakaoLogin(String authorizationCode){
+        Long kakaoId = kakaoClient.getKakaoId(authorizationCode);
+
+        Member member = memberRepository.findByKakaoId(kakaoId)
+                .orElseGet(()-> memberRepository.save(Member.createKakaoMember(kakaoId)));
+
+        return issueRefreshToken(member.getId());
+    }
 
     @Transactional
     public SignupResult signUp(SignupRequest signupRequest) {
@@ -84,34 +97,40 @@ public class AuthService {
     }
 
     @Transactional
-    public RefreshResult refresh(String refreshToken) {
-        Long memberId;
-        try {
-            memberId = jwtProvider.getRefreshTokenMemberId(refreshToken);
-        } catch (JwtException | IllegalArgumentException exception) {
-            throw new BusinessException(AuthErrorCode.INVALID_TOKEN, exception);
-        }
-
-        RefreshToken storedToken = refreshTokenRepository.findByMemberId(memberId)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
-        if (!storedToken.getToken().equals(refreshToken)
-                || !storedToken.getExpiresAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
-        }
-
+    public OnboardingResponse completeOnboarding(
+            Long memberId,
+            OnboardingRequest request
+    ) {
         Member member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+                .orElseThrow(()-> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+
+        if(member.isOnboardingCompleted()){
+            throw new BusinessException(
+                    AuthErrorCode.ONBOARDING_ALREADY_COMPLETED);
+        }
+
+        Role role = resolveRole(request.inviteCode());
+
+        member.completeOnboarding(
+                request.name(),
+                request.generation(),
+                role
+        );
+
+        return OnboardingResponse.of(request.name(), request.generation());
+    }
+
+    @Transactional
+    public RefreshResult refresh(String refreshToken) {
+        Member member = validateRefreshToken(refreshToken);
 
         String accessToken = jwtProvider.createAccessToken(member.getId());
-        String newRefreshToken = jwtProvider.createRefreshToken(member.getId());
-        LocalDateTime expiresAt = LocalDateTime.now()
-                .plus(Duration.ofMillis(jwtProvider.getRefreshTokenExpiration()));
-        storedToken.update(newRefreshToken, expiresAt);
-        refreshTokenRepository.save(storedToken);
+        String newRefreshToken = issueRefreshToken(member.getId());
 
-        RefreshResponse refreshResponse = RefreshResponse.from(accessToken);
-
-        return RefreshResult.of(refreshResponse, newRefreshToken);
+        return RefreshResult.of(
+                RefreshResponse.from(accessToken),
+                newRefreshToken
+        );
     }
 
     @Transactional(readOnly = true)
@@ -132,6 +151,32 @@ public class AuthService {
         throw new BusinessException(AuthErrorCode.INVALID_INVITE_CODE);
     }
 
+    private Member validateRefreshToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+
+        Long memberId;
+        try {
+            memberId = jwtProvider.getRefreshTokenMemberId(refreshToken);
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN, exception);
+        }
+
+        RefreshToken storedToken = refreshTokenRepository.findByMemberId(memberId)
+                .orElseThrow(() ->
+                        new BusinessException(AuthErrorCode.INVALID_TOKEN));
+
+        if (!storedToken.getToken().equals(refreshToken)
+                || !storedToken.getExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+
+        return memberRepository.findById(memberId)
+                .orElseThrow(() ->
+                        new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+    }
+
     private String issueRefreshToken(Long memberId) {
         String token = jwtProvider.createRefreshToken(memberId);
         LocalDateTime expiresAt = LocalDateTime.now()
@@ -146,5 +191,20 @@ public class AuthService {
 
         refreshTokenRepository.save(entity);
         return token;
+    }
+
+    @Transactional(readOnly = true)
+    public AccessTokenResponse issueAccessToken(String refreshToken) {
+        Member member = validateRefreshToken(refreshToken);
+
+        String accessToken = jwtProvider.createAccessToken(member.getId());
+
+        boolean onboardingCompleted = member.isOnboardingCompleted();
+        return new AccessTokenResponse(
+                accessToken,
+                onboardingCompleted,
+                onboardingCompleted ? member.getName() : null,
+                onboardingCompleted ? member.getGeneration() : null
+        );
     }
 }

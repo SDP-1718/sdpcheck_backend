@@ -1,4 +1,5 @@
 package com.sdpcheck.sdpcheck.global.security.jwt;
+import org.springframework.security.core.GrantedAuthority;
 
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
@@ -51,10 +52,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Member member = memberRepository.findById(memberId)
                     .orElseThrow(() -> new BadCredentialsException("Member no longer exists"));
 
+            List<GrantedAuthority> authorities = List.of();
+
+            if (member.isOnboardingCompleted()) {
+                if (member.getRole() == null) {
+                    throw new BadCredentialsException("Completed member has no role");
+                }
+
+                authorities = List.of(
+                        new SimpleGrantedAuthority("ROLE_" + member.getRole().name())
+                );
+            }
+
             AuthenticatedMember principal = new AuthenticatedMember(
                     memberId, member.getLoginId(), member.getRole());
-            var authentication = UsernamePasswordAuthenticationToken.authenticated(principal, null,
-                    List.of(new SimpleGrantedAuthority("ROLE_" + member.getRole().name())));
+
+            var authentication =
+                    UsernamePasswordAuthenticationToken.authenticated(
+                            principal, null, authorities);
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(authentication);

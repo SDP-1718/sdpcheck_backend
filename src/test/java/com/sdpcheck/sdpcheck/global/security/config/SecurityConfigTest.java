@@ -13,6 +13,10 @@ import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResult;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResult;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.SignupResult;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.SignupResponse;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.CheckLoginIdResponse;
+import com.sdpcheck.sdpcheck.domain.auth.dto.request.SignupRequest;
 import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
 import com.sdpcheck.sdpcheck.domain.auth.service.AuthService;
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
@@ -368,12 +372,12 @@ class SecurityConfigTest {
     }
 
     @Test
-    void logoutExpiresCookieAndReturnsEmptySuccessResult() throws Exception {
+    void logoutExpiresCookieAndReturnsNoContent() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie("refreshToken", "current-refresh")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isSuccess").value(true))
-                .andExpect(jsonPath("$.code").value("SUCCESS"))
-                .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
+                .andExpect(header().doesNotExist(HttpHeaders.CONTENT_TYPE))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("refreshToken=;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/api/v1/auth")))
@@ -387,8 +391,8 @@ class SecurityConfigTest {
     @Test
     void logoutSucceedsWithoutCookieOrAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
         verify(authService).logout(null);
         verifyNoInteractions(memberRepository);
@@ -400,10 +404,38 @@ class SecurityConfigTest {
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + expired.createAccessToken(1L))
                         .cookie(new Cookie("refreshToken", "expired-refresh")))
-                .andExpect(status().isOk())
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
         verify(authService).logout("expired-refresh");
         verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void signupReturns201WithJsonAndRefreshCookie() throws Exception {
+        when(authService.signUp(any(SignupRequest.class))).thenReturn(SignupResult.of(
+                new SignupResponse(1L, "member", "access-token"), "refresh-token"));
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginId\":\"member\",\"password\":\"password123!\",\"name\":\"회원\",\"generation\":17,\"inviteCode\":\"invite\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("CREATED"))
+                .andExpect(jsonPath("$.result.memberId").value(1))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("refreshToken=refresh-token")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
+    }
+
+    @Test
+    void loginIdCheckReturns200ForBothAvailableAndUsedIds() throws Exception {
+        when(authService.checkLoginId("new-member")).thenReturn(new CheckLoginIdResponse(true));
+        when(authService.checkLoginId("used-member")).thenReturn(new CheckLoginIdResponse(false));
+        mockMvc.perform(get("/api/v1/auth/check-login-id").param("loginId", "new-member"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.result.available").value(true));
+        mockMvc.perform(get("/api/v1/auth/check-login-id").param("loginId", "used-member"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.available").value(false));
     }
 
     @RestController

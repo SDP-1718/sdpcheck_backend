@@ -11,6 +11,7 @@ import com.sdpcheck.sdpcheck.global.security.jwt.AuthenticatedMember;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -36,6 +37,7 @@ public class AuthController {
         ResponseCookie refreshCookie = refreshTokenCookieProvider.create(signupResult.refreshToken());
 
         return ResponseEntity.status(HttpStatus.CREATED)
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .body(ApiResponse.created(signupResult.response()));
     }
@@ -47,31 +49,35 @@ public class AuthController {
         ResponseCookie refreshCookie = refreshTokenCookieProvider.create(loginResult.refreshToken());
 
         return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .body(ApiResponse.success(loginResult.response()));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout(
+    public ResponseEntity<Void> logout(
             @CookieValue(value = "refreshToken", required = false) String refreshToken) {
         authService.logout(refreshToken);
 
         ResponseCookie refreshCookie = refreshTokenCookieProvider.clear();
 
-        return ResponseEntity.ok()
+        return ResponseEntity.noContent()
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
-                .body(ApiResponse.success(null));
+                .build();
     }
 
     @Hidden
     @PostMapping("/onboarding")
-    public ApiResponse<OnboardingResponse> completeOnboarding(
+    public ResponseEntity<ApiResponse<OnboardingResponse>> completeOnboarding(
             @AuthenticationPrincipal AuthenticatedMember principal,
             @Valid @RequestBody OnboardingRequest request
             ){
         OnboardingResponse response = authService.completeOnboarding(principal.memberId(), request);
 
-        return ApiResponse.success(response);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.success(response));
     }
 
     @PostMapping("/refresh")
@@ -82,24 +88,27 @@ public class AuthController {
         ResponseCookie refreshCookie = refreshTokenCookieProvider.create(refreshResult.refreshToken());
 
         return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .body(ApiResponse.success(refreshResult.response()));
     }
 
     @PostMapping("/access-token")
-    public ApiResponse<AccessTokenResponse> issueAccessToken(
+    public ResponseEntity<ApiResponse<AccessTokenResponse>> issueAccessToken(
             @CookieValue(value = "refreshToken", required = false)
             String refreshToken
     ) {
         AccessTokenResponse response =
                 authService.issueAccessToken(refreshToken);
 
-        return ApiResponse.success(response);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.success(response));
     }
 
     @Hidden
     @GetMapping("/check-login-id")
-    public ApiResponse<CheckLoginIdResponse> checkLoginId(@RequestParam String loginId) {
-        return ApiResponse.success(authService.checkLoginId(loginId));
+    public ResponseEntity<ApiResponse<CheckLoginIdResponse>> checkLoginId(@RequestParam String loginId) {
+        return ResponseEntity.ok().body(ApiResponse.success(authService.checkLoginId(loginId)));
     }
 }

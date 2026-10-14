@@ -34,6 +34,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 @WebMvcTest(controllers = PushTokenController.class, properties = {
         "spring.config.import=",
@@ -139,11 +141,10 @@ class PushTokenControllerTest {
     void deletesTokenForCurrentMemberWithExpectedResponse() throws Exception {
         authenticate(Role.MEMBER);
         mvc.perform(delete(URL + "/37").header(HttpHeaders.AUTHORIZATION, token()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isSuccess").value(true))
-                .andExpect(jsonPath("$.code").value("PUSH_TOKEN_DELETE_SUCCESS"))
-                .andExpect(jsonPath("$.message").value("푸시 토큰 삭제에 성공했습니다."))
-                .andExpect(jsonPath("$.result").value(nullValue()));
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
+                .andExpect(header().doesNotExist(HttpHeaders.CONTENT_TYPE))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
         verify(service).deletePushToken(1L, 37L);
     }
 
@@ -151,7 +152,8 @@ class PushTokenControllerTest {
     void adminCanDeleteToken() throws Exception {
         authenticate(Role.ADMIN);
         mvc.perform(delete(URL + "/37").header(HttpHeaders.AUTHORIZATION, token()))
-                .andExpect(status().isOk());
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
         verify(service).deletePushToken(1L, 37L);
     }
 

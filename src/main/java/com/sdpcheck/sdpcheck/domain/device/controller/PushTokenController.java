@@ -8,6 +8,8 @@ import com.sdpcheck.sdpcheck.global.security.jwt.AuthenticatedMember;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,7 +20,7 @@ public class PushTokenController {
     private final PushTokenService pushTokenService;
 
     @PostMapping
-    public ApiResponse<PushTokenResponse> addPushToken(
+    public ResponseEntity<ApiResponse<PushTokenResponse>> addPushToken(
             @Valid @RequestBody PushTokenRequest pushTokenRequest,
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember){
         PushTokenResponse pushTokenResponse = pushTokenService.addPushToken(
@@ -26,17 +28,20 @@ public class PushTokenController {
                 pushTokenRequest
         );
 
-        return new ApiResponse<>(true, "PUSH_TOKEN_REGISTER_SUCCESS",
-                "푸시 토큰 등록에 성공했습니다.", pushTokenResponse);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new ApiResponse<>(true, "PUSH_TOKEN_REGISTER_SUCCESS",
+                        "푸시 토큰 등록에 성공했습니다.", pushTokenResponse));
     }
 
     @DeleteMapping("/{tokenId}")
-    public ApiResponse<Void> deletePushToken(
+    public ResponseEntity<Void> deletePushToken(
             @PathVariable @Positive Long tokenId,
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember) {
         pushTokenService.deletePushToken(authenticatedMember.memberId(), tokenId);
 
-        return new ApiResponse<>(true, "PUSH_TOKEN_DELETE_SUCCESS",
-                "푸시 토큰 삭제에 성공했습니다.", null);
+        return ResponseEntity.noContent()
+                .cacheControl(CacheControl.noStore())
+                .build();
     }
 }

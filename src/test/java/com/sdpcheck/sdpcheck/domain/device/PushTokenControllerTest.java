@@ -187,6 +187,19 @@ class PushTokenControllerTest {
                 .andExpect(jsonPath("$.code").value("PUSH_TOKEN_NOT_FOUND"));
     }
 
+    @Test
+    void memberWithIncompleteOnboardingCannotRegisterOrDeletePushToken() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(Member.createKakaoMember(123L)));
+        mvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, token())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"token\":\"fcm-token\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        mvc.perform(delete(URL + "/37").header(HttpHeaders.AUTHORIZATION, token()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        verifyNoInteractions(service);
+    }
+
     private void authenticate(Role role) {
         when(members.findById(1L)).thenReturn(Optional.of(new Member("push-member", "hash", "회원", 17, role)));
     }

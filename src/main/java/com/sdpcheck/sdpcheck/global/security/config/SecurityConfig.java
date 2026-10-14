@@ -56,6 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(paths.matcher("/api/v1/admin/**")).hasRole("ADMIN")
                         .requestMatchers(paths.matcher(HttpMethod.POST, "/api/v1/files")).hasRole("ADMIN")
                         .requestMatchers(paths.matcher(HttpMethod.POST, "/api/v1/auth/onboarding")).authenticated()
+                        .requestMatchers(paths.matcher("/api/v1/devices/push-tokens/**")).hasAnyRole("MEMBER", "ADMIN")
                         .anyRequest().hasAnyRole("MEMBER", "ADMIN"))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, memberRepository,
                                 exceptionHandler, publicEndpoints),

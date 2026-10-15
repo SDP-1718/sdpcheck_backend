@@ -1,6 +1,7 @@
 package com.sdpcheck.sdpcheck.domain.member.service;
 
 import com.sdpcheck.sdpcheck.domain.member.dto.request.NotificationSettingsRequest;
+import com.sdpcheck.sdpcheck.domain.member.dto.response.MyInfoResponse;
 import com.sdpcheck.sdpcheck.domain.member.dto.response.NotificationSettingsResponse;
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.exception.MemberErrorCode;
@@ -14,6 +15,14 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MemberService {
     private final MemberRepository memberRepository;
+
+    @Transactional(readOnly = true)
+    public MyInfoResponse getMyInfo(Long memberId) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new BusinessException(MemberErrorCode.MEMBER_NOT_FOUND));
+
+        return MyInfoResponse.from(member);
+    }
 
     @Transactional(readOnly = true)
     public NotificationSettingsResponse getNotificationSettings(Long memberId) {

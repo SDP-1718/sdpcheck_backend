@@ -3,6 +3,7 @@ package com.sdpcheck.sdpcheck.domain.member.controller;
 import com.sdpcheck.sdpcheck.domain.insight.dto.response.AttendanceInsightResponse;
 import com.sdpcheck.sdpcheck.domain.insight.service.AttendanceInsightService;
 import com.sdpcheck.sdpcheck.domain.member.dto.request.NotificationSettingsRequest;
+import com.sdpcheck.sdpcheck.domain.member.dto.response.MyInfoResponse;
 import com.sdpcheck.sdpcheck.domain.member.dto.response.NotificationSettingsResponse;
 import com.sdpcheck.sdpcheck.domain.member.service.MemberService;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
@@ -20,6 +21,17 @@ import org.springframework.web.bind.annotation.*;
 public class MemberController {
     private final MemberService memberService;
     private final AttendanceInsightService attendanceInsightService;
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<MyInfoResponse>> getMyInfo(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember) {
+        MyInfoResponse response = memberService.getMyInfo(authenticatedMember.memberId());
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new ApiResponse<>(true, "MEMBER_ME_GET_SUCCESS",
+                        "내 정보 조회에 성공했습니다.", response));
+    }
 
     @GetMapping("/notification-settings")
     public ResponseEntity<ApiResponse<NotificationSettingsResponse>> getNotificationSettings(

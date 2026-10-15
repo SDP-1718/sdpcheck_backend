@@ -50,6 +50,81 @@ class MemberControllerTest {
     @MockitoBean AttendanceInsightService attendanceInsightService;
 
     @Test
+    void myInfoReturnsOnlyAuthenticatedMembersNameGenerationAndRole() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(
+                new Member("login-id", "password-hash", "정은우", 17, Role.MEMBER)));
+
+        mvc.perform(get("/api/v1/members/me")
+                        .header(HttpHeaders.AUTHORIZATION, token()).param("memberId", "2"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("MEMBER_ME_GET_SUCCESS"))
+                .andExpect(jsonPath("$.message").value("내 정보 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.result", aMapWithSize(3)))
+                .andExpect(jsonPath("$.result.name").value("정은우"))
+                .andExpect(jsonPath("$.result.generation").value(17))
+                .andExpect(jsonPath("$.result.role").value("MEMBER"));
+        verify(members, times(2)).findById(1L);
+        verify(members, never()).findById(2L);
+    }
+
+    @Test
+    void adminCanGetMyInfo() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(
+                new Member("admin", "hash", "관리자", 18, Role.ADMIN)));
+
+        mvc.perform(get("/api/v1/members/me").header(HttpHeaders.AUTHORIZATION, token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.name").value("관리자"))
+                .andExpect(jsonPath("$.result.generation").value(18))
+                .andExpect(jsonPath("$.result.role").value("ADMIN"));
+    }
+
+    @Test
+    void myInfoRequiresValidAccessTokenBeforeMemberLookup() throws Exception {
+        mvc.perform(get("/api/v1/members/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+
+        JwtProvider expiredJwt = new JwtProvider(
+                "test-only-secret-key-for-ci-0123456789-abcdefghij", -60000, 120000);
+        for (String invalidToken : java.util.List.of(
+                "invalid", jwt.createRefreshToken(1L), expiredJwt.createAccessToken(1L))) {
+            mvc.perform(get("/api/v1/members/me")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + invalidToken))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.isSuccess").value(false))
+                    .andExpect(jsonPath("$.code").value("INVALID_TOKEN"))
+                    .andExpect(jsonPath("$.result").value(nullValue()));
+        }
+        verifyNoInteractions(members);
+    }
+
+    @Test
+    void myInfoRejectsIncompleteOnboarding() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(Member.createKakaoMember(123L)));
+
+        mvc.perform(get("/api/v1/members/me").header(HttpHeaders.AUTHORIZATION, token()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        verify(members, times(1)).findById(1L);
+    }
+
+    @Test
+    void myInfoReturns404IfMemberDisappearsBeforeServiceLookup() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(member(Role.MEMBER)))
+                .thenReturn(Optional.empty());
+
+        mvc.perform(get("/api/v1/members/me").header(HttpHeaders.AUTHORIZATION, token()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.isSuccess").value(false))
+                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("회원 정보를 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.result").value(nullValue()));
+    }
+
+    @Test
     void attendanceInsightReturnsStandardResponseForAuthenticatedMember() throws Exception {
         when(members.findById(1L)).thenReturn(Optional.of(member(Role.MEMBER)));
         when(attendanceInsightService.getAttendanceInsight(1L)).thenReturn("최근 세션에 출석하셨어요!");

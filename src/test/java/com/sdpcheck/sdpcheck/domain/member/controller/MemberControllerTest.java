@@ -1,6 +1,7 @@
 package com.sdpcheck.sdpcheck.domain.member.controller;
 
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
+import com.sdpcheck.sdpcheck.domain.insight.service.AttendanceInsightService;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
 import com.sdpcheck.sdpcheck.domain.member.service.MemberService;
@@ -46,6 +47,30 @@ class MemberControllerTest {
     @Autowired MockMvc mvc;
     @Autowired JwtProvider jwt;
     @MockitoBean MemberRepository members;
+    @MockitoBean AttendanceInsightService attendanceInsightService;
+
+    @Test
+    void attendanceInsightReturnsStandardResponseForAuthenticatedMember() throws Exception {
+        when(members.findById(1L)).thenReturn(Optional.of(member(Role.MEMBER)));
+        when(attendanceInsightService.getAttendanceInsight(1L)).thenReturn("최근 세션에 출석하셨어요!");
+
+        mvc.perform(get("/api/v1/members/me/attendance-insight")
+                        .header(HttpHeaders.AUTHORIZATION, token()).param("memberId", "2"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.code").value("ATTENDANCE_INSIGHT_GET_SUCCESS"))
+                .andExpect(jsonPath("$.message").value("출석 인사이트 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.result.insight").value("최근 세션에 출석하셨어요!"));
+        verify(attendanceInsightService).getAttendanceInsight(1L);
+        verify(attendanceInsightService, never()).getAttendanceInsight(2L);
+    }
+
+    @Test
+    void unauthenticatedAttendanceInsightDoesNotCallService() throws Exception {
+        mvc.perform(get("/api/v1/members/me/attendance-insight"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(attendanceInsightService);
+    }
 
     @Test
     void memberReceivesExactSettingsResponseAndCannotChooseAnotherMember() throws Exception {

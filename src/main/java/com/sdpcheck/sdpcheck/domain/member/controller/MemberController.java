@@ -1,5 +1,7 @@
 package com.sdpcheck.sdpcheck.domain.member.controller;
 
+import com.sdpcheck.sdpcheck.domain.insight.dto.response.AttendanceInsightResponse;
+import com.sdpcheck.sdpcheck.domain.insight.service.AttendanceInsightService;
 import com.sdpcheck.sdpcheck.domain.member.dto.request.NotificationSettingsRequest;
 import com.sdpcheck.sdpcheck.domain.member.dto.response.NotificationSettingsResponse;
 import com.sdpcheck.sdpcheck.domain.member.service.MemberService;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/members/me")
 public class MemberController {
     private final MemberService memberService;
+    private final AttendanceInsightService attendanceInsightService;
 
     @GetMapping("/notification-settings")
     public ResponseEntity<ApiResponse<NotificationSettingsResponse>> getNotificationSettings(
@@ -42,5 +45,23 @@ public class MemberController {
                 .body(new ApiResponse<>(true, "NOTIFICATION_SETTINGS_UPDATE_SUCCESS",
                         "알림 설정 수정에 성공했습니다.", response));
     }
+
+    @GetMapping("/attendance-insight")
+    public ResponseEntity<ApiResponse<AttendanceInsightResponse>> getAttendanceInsight(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember){
+        String insight = attendanceInsightService.getAttendanceInsight(authenticatedMember.memberId());
+
+        AttendanceInsightResponse response = new AttendanceInsightResponse(insight);
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new ApiResponse<>(
+                        true,
+                        "ATTENDANCE_INSIGHT_GET_SUCCESS",
+                        "출석 인사이트 조회에 성공했습니다.",
+                        response
+                ));
+    }
+
 
 }

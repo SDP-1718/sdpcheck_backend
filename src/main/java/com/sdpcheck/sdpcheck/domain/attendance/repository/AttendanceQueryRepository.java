@@ -35,10 +35,29 @@ public class AttendanceQueryRepository {
                 (rs, rowNum) -> rs.getObject("id", UUID.class)).stream().findFirst();
     }
 
+    public Optional<OperatingSemester> findCurrentSemester() {
+        return jdbc.getJdbcTemplate().query("SELECT id, period_code FROM semesters WHERE is_current = true",
+                (rs, rowNum) -> new OperatingSemester(rs.getObject("id", UUID.class),
+                        rs.getString("period_code"))).stream().findFirst();
+    }
+
     public long countHistory(long memberId, UUID semesterId) {
         Long count = jdbc.queryForObject("SELECT count(*)\n" + HISTORY_FROM,
                 historyParams(memberId, semesterId), Long.class);
         return count == null ? 0 : count;
+    }
+
+    public AttendanceCounts countAttendance(long memberId, UUID semesterId) {
+        String sql = """
+                SELECT count(*) AS total_sessions,
+                       count(*) FILTER (WHERE a.status = 'PRESENT') AS present_count,
+                       count(*) FILTER (WHERE a.status = 'LATE') AS late_count,
+                       count(*) FILTER (WHERE a.session_id IS NULL) AS absent_count
+                %s
+                """.formatted(HISTORY_FROM);
+        return jdbc.queryForObject(sql, historyParams(memberId, semesterId),
+                (rs, rowNum) -> new AttendanceCounts(rs.getLong("total_sessions"),
+                        rs.getLong("present_count"), rs.getLong("late_count"), rs.getLong("absent_count")));
     }
 
     public List<AttendanceHistoryItem> findHistory(long memberId, UUID semesterId, int page, int size) {
@@ -65,5 +84,11 @@ public class AttendanceQueryRepository {
 
     private static OffsetDateTime seoul(OffsetDateTime timestamp) {
         return timestamp == null ? null : timestamp.atZoneSameInstant(SEOUL).toOffsetDateTime();
+    }
+
+    public record AttendanceCounts(long totalSessions, long presentCount, long lateCount, long absentCount) {
+    }
+
+    public record OperatingSemester(UUID id, String periodCode) {
     }
 }

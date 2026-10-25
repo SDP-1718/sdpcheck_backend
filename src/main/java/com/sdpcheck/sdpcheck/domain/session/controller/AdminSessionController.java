@@ -3,6 +3,7 @@ package com.sdpcheck.sdpcheck.domain.session.controller;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
@@ -27,6 +28,8 @@ public class AdminSessionController {
 	private static final String UPDATE_SESSION_MESSAGE = "\uC138\uC158 \uC815\uBCF4\uAC00 \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
 	private static final String START_SESSION_CODE = "SESSION2002";
 	private static final String START_SESSION_MESSAGE = "\uC138\uC158\uC774 \uC2DC\uC791\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
+	private static final String END_SESSION_CODE = "SESSION2003";
+	private static final String END_SESSION_MESSAGE = "세션이 종료되었습니다.";
 
 	private final SessionService sessionService;
 
@@ -64,5 +67,12 @@ public class AdminSessionController {
 		StartSessionResDTO response = sessionService.startSession(sessionId);
 
 		return ResponseEntity.ok(ApiResponse.of(START_SESSION_CODE, START_SESSION_MESSAGE, response));
+	}
+
+	@PostMapping("/{sessionId}/end")
+	public ResponseEntity<ApiResponse<EndSessionResDTO>> endSession(@PathVariable Long sessionId) {
+		EndSessionResDTO response = sessionService.endSession(sessionId);
+
+		return ResponseEntity.ok(ApiResponse.of(END_SESSION_CODE, END_SESSION_MESSAGE, response));
 	}
 }

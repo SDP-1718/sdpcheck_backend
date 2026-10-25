@@ -54,6 +54,8 @@ public class Session {
 
 	private LocalDateTime startedAt;
 
+	private LocalDateTime endedAt;
+
 	private Session(String title, LocalDate sessionDate, LocalTime startTime, LocalTime endTime, String location) {
 		this.title = title;
 		this.sessionDate = sessionDate;
@@ -85,6 +87,11 @@ public class Session {
 	public void start(LocalDateTime startedAt) {
 		this.status = SessionStatus.IN_PROGRESS;
 		this.startedAt = startedAt;
+	}
+
+	public void end(LocalDateTime endedAt) {
+		this.status = SessionStatus.COMPLETED;
+		this.endedAt = endedAt;
 	}
 
 	@PrePersist

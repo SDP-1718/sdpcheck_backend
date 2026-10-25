@@ -3,6 +3,7 @@ package com.sdpcheck.sdpcheck.domain.session.service;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
@@ -105,6 +106,21 @@ public class SessionService {
 		return StartSessionResDTO.from(session);
 	}
 
+	@Transactional
+	public EndSessionResDTO endSession(Long sessionId) {
+		if (sessionId == null) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
+		}
+
+		Session session = sessionRepository.findById(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+
+		validateEndable(session);
+		session.end(LocalDateTime.now());
+
+		return EndSessionResDTO.from(session);
+	}
+
 	private void validateRequiredFields(CreateSessionReqDTO request) {
 		if (request == null
 				|| isBlank(request.title())
@@ -195,6 +211,15 @@ public class SessionService {
 			throw new SessionException(SessionErrorCode.SESSION_ALREADY_STARTED);
 		}
 		if (session.getStatus() != SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_ALREADY_ENDED);
+		}
+	}
+
+	private void validateEndable(Session session) {
+		if (session.getStatus() == SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_STARTED);
+		}
+		if (session.getStatus() != SessionStatus.IN_PROGRESS) {
 			throw new SessionException(SessionErrorCode.SESSION_ALREADY_ENDED);
 		}
 	}

@@ -4,6 +4,7 @@ import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionDetailResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
@@ -12,6 +13,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/sessions")
 public class AdminSessionController {
 
+	private static final String GET_SESSION_CODE = "SESSION2001";
+	private static final String GET_SESSION_MESSAGE = "세션 상세 조회에 성공했습니다.";
 	private static final String CREATE_SESSION_CODE = "SESSION2011";
 	private static final String CREATE_SESSION_MESSAGE = "\uC138\uC158\uC774 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
 	private static final String UPDATE_SESSION_CODE = "SESSION2004";
@@ -36,6 +40,13 @@ public class AdminSessionController {
 
 	public AdminSessionController(SessionService sessionService) {
 		this.sessionService = sessionService;
+	}
+
+	@GetMapping("/{sessionId}")
+	public ResponseEntity<ApiResponse<SessionDetailResDTO>> getSession(@PathVariable UUID sessionId) {
+		SessionDetailResDTO response = sessionService.getSession(sessionId);
+
+		return ResponseEntity.ok(ApiResponse.of(GET_SESSION_CODE, GET_SESSION_MESSAGE, response));
 	}
 
 	@PostMapping

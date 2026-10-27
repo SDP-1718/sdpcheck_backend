@@ -4,6 +4,7 @@ import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionDetailResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
@@ -37,6 +38,17 @@ public class SessionService {
 
 	public SessionService(SessionRepository sessionRepository) {
 		this.sessionRepository = sessionRepository;
+	}
+
+	public SessionDetailResDTO getSession(UUID sessionId) {
+		if (sessionId == null) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
+		}
+
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+
+		return SessionDetailResDTO.from(session);
 	}
 
 	@Transactional

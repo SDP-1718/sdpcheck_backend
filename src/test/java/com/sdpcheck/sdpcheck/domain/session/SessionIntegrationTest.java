@@ -30,6 +30,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -108,6 +109,38 @@ class SessionIntegrationTest {
     }
 
     @Test
+    void returnsSessionDetail() throws Exception {
+        UUID id = UUID.fromString(JsonPath.read(create("9월 4주차 정기 세션", future, "18:00", "20:00", "정보과학관 301호")
+                .andReturn().getResponse().getContentAsString(), "$.result.sessionId"));
+
+        admin(get(BASE + "/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("SESSION2001"))
+                .andExpect(jsonPath("$.message").value("세션 상세 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.result.sessionId").value(id.toString()))
+                .andExpect(jsonPath("$.result.title").value("9월 4주차 정기 세션"))
+                .andExpect(jsonPath("$.result.sessionDate").value(future.toString()))
+                .andExpect(jsonPath("$.result.startTime").value("18:00"))
+                .andExpect(jsonPath("$.result.endTime").value("20:00"))
+                .andExpect(jsonPath("$.result.location").value("정보과학관 301호"))
+                .andExpect(jsonPath("$.result.status").value("SCHEDULED"));
+
+        admin(post(BASE + "/" + id + "/start")).andExpect(status().isOk());
+        admin(get(BASE + "/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.status").value("IN_PROGRESS"));
+
+        admin(get(BASE + "/" + UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.isSuccess").value(false))
+                .andExpect(jsonPath("$.code").value("SESSION4041"));
+        mvc.perform(get(BASE + "/" + id)).andExpect(status().isUnauthorized());
+        mvc.perform(get(BASE + "/" + id).header(HttpHeaders.AUTHORIZATION, memberToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void softDeletesScheduledSession() throws Exception {
         UUID id = UUID.fromString(JsonPath.read(create("삭제할 세션", future, "10:00", "11:00", "세미나실")
                 .andReturn().getResponse().getContentAsString(), "$.result.sessionId"));
@@ -116,6 +149,7 @@ class SessionIntegrationTest {
         admin(delete(BASE + "/" + id))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SESSION4041"));
         admin(post(BASE + "/" + id + "/start")).andExpect(status().isNotFound());
+        admin(get(BASE + "/" + id)).andExpect(status().isNotFound());
 
         assertNotNull(jdbc.queryForObject("SELECT deleted_at FROM study_sessions WHERE id = ?",
                 OffsetDateTime.class, id));

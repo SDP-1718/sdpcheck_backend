@@ -29,6 +29,9 @@ public class SessionService {
 	private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 	private static final Pattern TIME_PATTERN = Pattern.compile("([01]\\d|2[0-3]):[0-5]\\d");
 
+	private static final int TITLE_MAX_LENGTH = 100;
+	private static final int LOCATION_MAX_LENGTH = 255;
+
 	private final SessionRepository sessionRepository;
 
 	public SessionService(SessionRepository sessionRepository) {
@@ -43,14 +46,14 @@ public class SessionService {
 		LocalTime startTime = parseTime(request.startTime());
 		LocalTime endTime = parseTime(request.endTime());
 		validateTimeRange(startTime, endTime);
+		validateNotPast(sessionDate, startTime);
 
-		Session session = Session.create(
-				request.title().trim(),
-				sessionDate,
-				startTime,
-				endTime,
-				request.location().trim()
-		);
+		String title = request.title().trim();
+		String location = request.location().trim();
+		validateLength(title, TITLE_MAX_LENGTH);
+		validateLength(location, LOCATION_MAX_LENGTH);
+
+		Session session = Session.create(title, sessionDate, startTime, endTime, location);
 
 		return CreateSessionResDTO.from(sessionRepository.save(session));
 	}
@@ -72,6 +75,9 @@ public class SessionService {
 		LocalTime endTime = resolveTime(request.endTime(), session.getEndTime());
 		String location = resolveText(request.location(), session.getLocation());
 		validateTimeRange(startTime, endTime);
+		validateNotPast(sessionDate, startTime);
+		validateLength(title, TITLE_MAX_LENGTH);
+		validateLength(location, LOCATION_MAX_LENGTH);
 
 		session.update(title, sessionDate, startTime, endTime, location);
 
@@ -232,6 +238,18 @@ public class SessionService {
 	private void validateTimeRange(LocalTime startTime, LocalTime endTime) {
 		if (!startTime.isBefore(endTime)) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_TIME_RANGE);
+		}
+	}
+
+	private void validateNotPast(LocalDate sessionDate, LocalTime startTime) {
+		if (!LocalDateTime.now().isBefore(LocalDateTime.of(sessionDate, startTime))) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_DATE_TIME);
+		}
+	}
+
+	private void validateLength(String value, int maxLength) {
+		if (value.length() > maxLength) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
 		}
 	}
 

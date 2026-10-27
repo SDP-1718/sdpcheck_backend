@@ -2,21 +2,22 @@ package com.sdpcheck.sdpcheck.domain.session.dto.response;
 
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
 public record EndSessionResDTO(
-		Long sessionId,
+		UUID sessionId,
 		SessionStatus status,
-		LocalDateTime startedAt,
-		LocalDateTime endedAt
+		OffsetDateTime startedAt,
+		OffsetDateTime endedAt
 ) {
 
 	public static EndSessionResDTO from(Session session) {
 		return new EndSessionResDTO(
 				session.getId(),
 				session.getStatus(),
-				session.getStartedAt(),
-				session.getEndedAt()
+				Session.inZone(session.getStartedAt()),
+				Session.inZone(session.getEndedAt())
 		);
 	}
 }

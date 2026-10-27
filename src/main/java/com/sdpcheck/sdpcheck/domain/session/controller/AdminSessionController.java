@@ -8,6 +8,7 @@ import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -47,7 +48,7 @@ public class AdminSessionController {
 
 	@PatchMapping("/{sessionId}")
 	public ResponseEntity<ApiResponse<UpdateSessionResDTO>> updateSession(
-			@PathVariable Long sessionId,
+			@PathVariable UUID sessionId,
 			@RequestBody(required = false) UpdateSessionReqDTO request
 	) {
 		UpdateSessionResDTO response = sessionService.updateSession(sessionId, request);
@@ -56,21 +57,21 @@ public class AdminSessionController {
 	}
 
 	@DeleteMapping("/{sessionId}")
-	public ResponseEntity<Void> deleteSession(@PathVariable Long sessionId) {
+	public ResponseEntity<Void> deleteSession(@PathVariable UUID sessionId) {
 		sessionService.deleteSession(sessionId);
 
 		return ResponseEntity.noContent().build();
 	}
 
 	@PostMapping("/{sessionId}/start")
-	public ResponseEntity<ApiResponse<StartSessionResDTO>> startSession(@PathVariable Long sessionId) {
+	public ResponseEntity<ApiResponse<StartSessionResDTO>> startSession(@PathVariable UUID sessionId) {
 		StartSessionResDTO response = sessionService.startSession(sessionId);
 
 		return ResponseEntity.ok(ApiResponse.of(START_SESSION_CODE, START_SESSION_MESSAGE, response));
 	}
 
 	@PostMapping("/{sessionId}/end")
-	public ResponseEntity<ApiResponse<EndSessionResDTO>> endSession(@PathVariable Long sessionId) {
+	public ResponseEntity<ApiResponse<EndSessionResDTO>> endSession(@PathVariable UUID sessionId) {
 		EndSessionResDTO response = sessionService.endSession(sessionId);
 
 		return ResponseEntity.ok(ApiResponse.of(END_SESSION_CODE, END_SESSION_MESSAGE, response));

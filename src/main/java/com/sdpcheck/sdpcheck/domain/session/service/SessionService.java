@@ -13,10 +13,11 @@ import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
 import java.time.DateTimeException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,7 @@ public class SessionService {
 	private static final Pattern TIME_PATTERN = Pattern.compile("([01]\\d|2[0-3]):[0-5]\\d");
 
 	private static final int TITLE_MAX_LENGTH = 100;
-	private static final int LOCATION_MAX_LENGTH = 255;
+	private static final int LOCATION_MAX_LENGTH = 200;
 
 	private final SessionRepository sessionRepository;
 
@@ -59,12 +60,12 @@ public class SessionService {
 	}
 
 	@Transactional
-	public UpdateSessionResDTO updateSession(Long sessionId, UpdateSessionReqDTO request) {
+	public UpdateSessionResDTO updateSession(UUID sessionId, UpdateSessionReqDTO request) {
 		if (sessionId == null || request == null) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
 		}
 
-		Session session = sessionRepository.findById(sessionId)
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
 				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 
 		validateUpdatable(session);
@@ -74,6 +75,9 @@ public class SessionService {
 		LocalTime startTime = resolveTime(request.startTime(), session.getStartTime());
 		LocalTime endTime = resolveTime(request.endTime(), session.getEndTime());
 		String location = resolveText(request.location(), session.getLocation());
+		if (endTime == null || location == null) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
+		}
 		validateTimeRange(startTime, endTime);
 		validateNotPast(sessionDate, startTime);
 		validateLength(title, TITLE_MAX_LENGTH);
@@ -85,44 +89,44 @@ public class SessionService {
 	}
 
 	@Transactional
-	public void deleteSession(Long sessionId) {
+	public void deleteSession(UUID sessionId) {
 		if (sessionId == null) {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findById(sessionId)
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
 				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 
 		validateDeletable(session);
-		sessionRepository.delete(session);
+		session.delete(OffsetDateTime.now());
 	}
 
 	@Transactional
-	public StartSessionResDTO startSession(Long sessionId) {
+	public StartSessionResDTO startSession(UUID sessionId) {
 		if (sessionId == null) {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findById(sessionId)
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
 				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 
 		validateStartable(session);
-		session.start(LocalDateTime.now());
+		session.start(OffsetDateTime.now());
 
 		return StartSessionResDTO.from(session);
 	}
 
 	@Transactional
-	public EndSessionResDTO endSession(Long sessionId) {
+	public EndSessionResDTO endSession(UUID sessionId) {
 		if (sessionId == null) {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findById(sessionId)
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
 				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 
 		validateEndable(session);
-		session.end(LocalDateTime.now());
+		session.end(OffsetDateTime.now());
 
 		return EndSessionResDTO.from(session);
 	}
@@ -231,8 +235,7 @@ public class SessionService {
 	}
 
 	private boolean hasAlreadyStarted(Session session) {
-		LocalDateTime sessionStartAt = LocalDateTime.of(session.getSessionDate(), session.getStartTime());
-		return !LocalDateTime.now().isBefore(sessionStartAt);
+		return !OffsetDateTime.now().isBefore(session.getStartsAt());
 	}
 
 	private void validateTimeRange(LocalTime startTime, LocalTime endTime) {
@@ -242,7 +245,7 @@ public class SessionService {
 	}
 
 	private void validateNotPast(LocalDate sessionDate, LocalTime startTime) {
-		if (!LocalDateTime.now().isBefore(LocalDateTime.of(sessionDate, startTime))) {
+		if (!OffsetDateTime.now().isBefore(Session.toInstant(sessionDate, startTime))) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_DATE_TIME);
 		}
 	}

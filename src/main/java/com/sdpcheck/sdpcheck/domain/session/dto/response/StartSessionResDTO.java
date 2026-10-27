@@ -2,19 +2,20 @@ package com.sdpcheck.sdpcheck.domain.session.dto.response;
 
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
 public record StartSessionResDTO(
-		Long sessionId,
+		UUID sessionId,
 		SessionStatus status,
-		LocalDateTime startedAt
+		OffsetDateTime startedAt
 ) {
 
 	public static StartSessionResDTO from(Session session) {
 		return new StartSessionResDTO(
 				session.getId(),
 				session.getStatus(),
-				session.getStartedAt()
+				Session.inZone(session.getStartedAt())
 		);
 	}
 }

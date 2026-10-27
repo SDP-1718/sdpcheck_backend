@@ -1,5 +1,6 @@
 package com.sdpcheck.sdpcheck.domain.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.LoginRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.SignupRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.*;
@@ -29,6 +30,7 @@ public class AuthController {
 
     private final JwtProvider jwtProvider;
 
+    @Operation(summary = "회원가입", description = "회원 정보와 초대코드로 가입하고 로그인 토큰을 발급합니다.")
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
         SignupResult signupResult = authService.signUp(request);
@@ -46,6 +48,7 @@ public class AuthController {
                 .body(ApiResponse.created(signupResult.response()));
     }
 
+    @Operation(summary = "로그인", description = "아이디와 비밀번호를 확인하고 로그인 토큰을 발급합니다.")
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest loginRequest){
         LoginResult loginResult = authService.login(loginRequest);
@@ -63,6 +66,7 @@ public class AuthController {
                 .body(ApiResponse.success(loginResult.response()));
     }
 
+    @Operation(summary = "로그아웃", description = "리프레시 토큰을 폐기하고 인증 갱신용 쿠키를 삭제합니다.")
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
             @CookieValue(value = "refreshToken", required = false) String refreshToken) {
@@ -81,6 +85,7 @@ public class AuthController {
                 .body(ApiResponse.success(null));
     }
 
+    @Operation(summary = "로그인 토큰 갱신", description = "쿠키의 리프레시 토큰을 확인하고 액세스 토큰과 리프레시 토큰을 갱신합니다.")
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<RefreshResponse>> refresh(
             @CookieValue(value = "refreshToken", required = false) String refreshToken) {
@@ -101,6 +106,7 @@ public class AuthController {
 
     }
 
+    @Operation(summary = "아이디 중복 확인", description = "회원가입에 사용할 로그인 아이디의 사용 가능 여부를 확인합니다.")
     @GetMapping("/check-login-id")
     public ApiResponse<CheckLoginIdResponse> checkLoginId(@RequestParam String loginId) {
         return ApiResponse.success(authService.checkLoginId(loginId));

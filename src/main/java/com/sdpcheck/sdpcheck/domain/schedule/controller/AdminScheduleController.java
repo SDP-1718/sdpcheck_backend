@@ -42,6 +42,7 @@ public class AdminScheduleController {
         this.service = service;
     }
 
+    @Operation(summary = "일반 일정 등록", description = "관리자가 일정명·일시·장소를 입력하여 일반 일정을 등록합니다.")
     @PostMapping
     public ResponseEntity<ApiResponse<ScheduleResponse>> create(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedMember member,
@@ -53,6 +54,7 @@ public class AdminScheduleController {
                 .body(new ApiResponse<>(true, "SCHEDULE_CREATED", "일정이 생성되었습니다.", result));
     }
 
+    @Operation(summary = "관리자 일정 목록 조회", description = "일반 일정과 세션을 통합하여 조회합니다. 기간·유형 필터와 페이지 조회를 지원합니다.")
     @GetMapping
     public ResponseEntity<ApiResponse<ScheduleListResponse>> list(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedMember member,
@@ -68,7 +70,8 @@ public class AdminScheduleController {
     }
 
     @PatchMapping("/{scheduleId}")
-    @Operation(operationId = "updateSchedule", summary = "일반 일정 수정")
+    @Operation(operationId = "updateSchedule", summary = "일반 일정 수정",
+            description = "관리자가 일반 일정의 제목·일시·장소를 부분 수정합니다. 최신 version이 필요하며 세션은 수정할 수 없습니다.")
     public ResponseEntity<ApiResponse<ScheduleResponse>> update(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedMember member,
             @PathVariable UUID scheduleId,
@@ -81,6 +84,7 @@ public class AdminScheduleController {
 
     @DeleteMapping("/{scheduleId}")
     @Operation(operationId = "deleteSchedule", summary = "일반 일정 삭제",
+            description = "관리자가 최신 version을 확인하여 일반 일정을 논리 삭제합니다. 세션은 삭제할 수 없습니다.",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "204", description = "일정 삭제 완료", content = @io.swagger.v3.oas.annotations.media.Content))
     public ResponseEntity<Void> delete(

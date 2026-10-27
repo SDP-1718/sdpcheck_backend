@@ -27,6 +27,8 @@ public class AdminSessionController {
 
 	private static final String GET_SESSION_CODE = "SESSION2001";
 	private static final String GET_SESSION_MESSAGE = "세션 상세 조회에 성공했습니다.";
+	private static final String GET_NEXT_SESSION_CODE = "SESSION2005";
+	private static final String GET_NEXT_SESSION_MESSAGE = "다음 세션 조회에 성공했습니다.";
 	private static final String CREATE_SESSION_CODE = "SESSION2011";
 	private static final String CREATE_SESSION_MESSAGE = "\uC138\uC158\uC774 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
 	private static final String UPDATE_SESSION_CODE = "SESSION2004";
@@ -40,6 +42,13 @@ public class AdminSessionController {
 
 	public AdminSessionController(SessionService sessionService) {
 		this.sessionService = sessionService;
+	}
+
+	@GetMapping("/next")
+	public ResponseEntity<ApiResponse<SessionDetailResDTO>> getNextSession() {
+		SessionDetailResDTO response = sessionService.getNextSession();
+
+		return ResponseEntity.ok(ApiResponse.of(GET_NEXT_SESSION_CODE, GET_NEXT_SESSION_MESSAGE, response));
 	}
 
 	@GetMapping("/{sessionId}")

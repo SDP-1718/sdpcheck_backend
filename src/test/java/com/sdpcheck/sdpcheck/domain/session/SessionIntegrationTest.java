@@ -141,6 +141,42 @@ class SessionIntegrationTest {
     }
 
     @Test
+    void returnsNextSession() throws Exception {
+        jdbc.update("DELETE FROM study_sessions");
+        admin(get(BASE + "/next"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SESSION2005"))
+                .andExpect(jsonPath("$.result").value((Object) null));
+
+        OffsetDateTime now = OffsetDateTime.now();
+        insertSession("지난 세션", now.minusHours(3), now.minusHours(1), null);
+        insertSession("삭제된 세션", now.plusHours(1), now.plusHours(2), "deleted_at");
+        insertSession("취소된 세션", now.plusHours(1), now.plusHours(2), "cancelled_at");
+        insertSession("모레 세션", now.plusDays(2), now.plusDays(2).plusHours(2), null);
+        UUID tomorrow = insertSession("내일 세션", now.plusDays(1), now.plusDays(1).plusHours(2), null);
+        admin(get(BASE + "/next"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.sessionId").value(tomorrow.toString()))
+                .andExpect(jsonPath("$.result.status").value("SCHEDULED"));
+
+        UUID late = insertSession("시작이 늦어진 세션", now.minusMinutes(10), now.plusMinutes(50), null);
+        admin(get(BASE + "/next"))
+                .andExpect(jsonPath("$.result.sessionId").value(late.toString()));
+
+        admin(post(BASE + "/" + tomorrow + "/start")).andExpect(status().isOk());
+        admin(get(BASE + "/next"))
+                .andExpect(jsonPath("$.result.sessionId").value(tomorrow.toString()))
+                .andExpect(jsonPath("$.result.status").value("IN_PROGRESS"));
+
+        admin(post(BASE + "/" + tomorrow + "/end")).andExpect(status().isOk());
+        admin(get(BASE + "/next"))
+                .andExpect(jsonPath("$.result.sessionId").value(late.toString()));
+
+        mvc.perform(get(BASE + "/next").header(HttpHeaders.AUTHORIZATION, memberToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void softDeletesScheduledSession() throws Exception {
         UUID id = UUID.fromString(JsonPath.read(create("삭제할 세션", future, "10:00", "11:00", "세미나실")
                 .andReturn().getResponse().getContentAsString(), "$.result.sessionId"));
@@ -201,6 +237,16 @@ class SessionIntegrationTest {
         return """
                 {"title":"%s","sessionDate":"%s","startTime":"%s","endTime":"%s","location":"%s"}
                 """.formatted(title, date, start, end, location);
+    }
+
+    private UUID insertSession(String title, OffsetDateTime startsAt, OffsetDateTime endsAt, String markedColumn) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO study_sessions (id, title, starts_at, ends_at, location) VALUES (?, ?, ?, ?, '세미나실')",
+                id, title, startsAt, endsAt);
+        if (markedColumn != null) {
+            jdbc.update("UPDATE study_sessions SET " + markedColumn + " = now() WHERE id = ?", id);
+        }
+        return id;
     }
 
     private long insertMember(String role) {

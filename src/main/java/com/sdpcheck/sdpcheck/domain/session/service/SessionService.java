@@ -20,6 +20,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +50,13 @@ public class SessionService {
 				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 
 		return SessionDetailResDTO.from(session);
+	}
+
+	public SessionDetailResDTO getNextSession() {
+		return sessionRepository.findNextSessions(OffsetDateTime.now(), PageRequest.of(0, 1)).stream()
+				.findFirst()
+				.map(SessionDetailResDTO::from)
+				.orElse(null);
 	}
 
 	@Transactional

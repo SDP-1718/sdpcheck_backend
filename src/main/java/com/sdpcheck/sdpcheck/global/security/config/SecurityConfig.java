@@ -33,6 +33,10 @@ public class SecurityConfig {
                 paths.matcher(HttpMethod.POST, "/api/v1/auth/logout"),
                 paths.matcher(HttpMethod.POST, "/api/v1/auth/refresh"),
                 paths.matcher(HttpMethod.GET, "/api/v1/auth/check-login-id"),
+                paths.matcher("/swagger-ui.html"),
+                paths.matcher("/swagger-ui/**"),
+                paths.matcher("/v3/api-docs"),
+                paths.matcher("/v3/api-docs/**"),
                 paths.matcher(HttpMethod.GET, "/actuator/health"),
                 paths.matcher(HttpMethod.GET, "/actuator/health/**"));
 

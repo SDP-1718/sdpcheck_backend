@@ -55,11 +55,14 @@ public class Session {
 
 	private OffsetDateTime deletedAt;
 
-	private Session(String title, OffsetDateTime startsAt, OffsetDateTime endsAt, String location) {
+	private UUID semesterId;
+
+	private Session(String title, OffsetDateTime startsAt, OffsetDateTime endsAt, String location, UUID semesterId) {
 		this.title = title;
 		this.startsAt = startsAt;
 		this.endsAt = endsAt;
 		this.location = location;
+		this.semesterId = semesterId;
 	}
 
 	public static Session create(
@@ -67,9 +70,16 @@ public class Session {
 			LocalDate sessionDate,
 			LocalTime startTime,
 			LocalTime endTime,
-			String location
+			String location,
+			UUID semesterId
 	) {
-		return new Session(title, toInstant(sessionDate, startTime), toInstant(sessionDate, endTime), location);
+		return new Session(
+				title,
+				toInstant(sessionDate, startTime),
+				toInstant(sessionDate, endTime),
+				location,
+				semesterId
+		);
 	}
 
 	public static OffsetDateTime toInstant(LocalDate date, LocalTime time) {

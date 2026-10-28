@@ -29,6 +29,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -82,6 +83,7 @@ class SessionIntegrationTest {
                 ((Timestamp) row.get("ends_at")).toInstant());
         assertEquals(1, jdbc.queryForObject(
                 "SELECT count(*) FROM schedule_items WHERE id = ? AND type = 'SESSION'", Integer.class, id));
+        assertNull(jdbc.queryForObject("SELECT semester_id FROM study_sessions WHERE id = ?", UUID.class, id));
 
         admin(patch(BASE + "/" + id).contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"수정됨\"}"))
                 .andExpect(status().isOk())
@@ -142,6 +144,8 @@ class SessionIntegrationTest {
 
     @Test
     void returnsNextSession() throws Exception {
+        jdbc.update("DELETE FROM attendances");
+        jdbc.update("DELETE FROM session_attendance_targets");
         jdbc.update("DELETE FROM study_sessions");
         admin(get(BASE + "/next"))
                 .andExpect(status().isOk())

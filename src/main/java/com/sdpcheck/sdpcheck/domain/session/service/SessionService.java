@@ -1,5 +1,6 @@
 package com.sdpcheck.sdpcheck.domain.session.service;
 
+import com.sdpcheck.sdpcheck.domain.attendance.repository.AttendanceQueryRepository;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
@@ -11,6 +12,7 @@ import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
+import com.sdpcheck.sdpcheck.domain.session.repository.SessionAttendanceRepository;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
 import java.time.DateTimeException;
 import java.time.LocalDate;
@@ -36,9 +38,17 @@ public class SessionService {
 	private static final int LOCATION_MAX_LENGTH = 200;
 
 	private final SessionRepository sessionRepository;
+	private final SessionAttendanceRepository sessionAttendanceRepository;
+	private final AttendanceQueryRepository attendanceQueryRepository;
 
-	public SessionService(SessionRepository sessionRepository) {
+	public SessionService(
+			SessionRepository sessionRepository,
+			SessionAttendanceRepository sessionAttendanceRepository,
+			AttendanceQueryRepository attendanceQueryRepository
+	) {
 		this.sessionRepository = sessionRepository;
+		this.sessionAttendanceRepository = sessionAttendanceRepository;
+		this.attendanceQueryRepository = attendanceQueryRepository;
 	}
 
 	public SessionDetailResDTO getSession(UUID sessionId) {
@@ -74,7 +84,8 @@ public class SessionService {
 		validateLength(title, TITLE_MAX_LENGTH);
 		validateLength(location, LOCATION_MAX_LENGTH);
 
-		Session session = Session.create(title, sessionDate, startTime, endTime, location);
+		UUID semesterId = attendanceQueryRepository.findCurrentSemesterId().orElse(null);
+		Session session = Session.create(title, sessionDate, startTime, endTime, location, semesterId);
 
 		return CreateSessionResDTO.from(sessionRepository.save(session));
 	}
@@ -132,6 +143,7 @@ public class SessionService {
 
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
+		sessionAttendanceRepository.registerAllMembersAsTargets(sessionId);
 
 		return StartSessionResDTO.from(session);
 	}

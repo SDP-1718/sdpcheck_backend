@@ -116,6 +116,12 @@ class SessionCheckInIntegrationTest {
     @Test
     void checksInAsLateWithinTwentyMinutesAndClosesAfterwards() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
+        UUID graceSession = insertSession(now.minusMinutes(3), now.plusMinutes(50));
+        start(graceSession);
+        checkIn(memberToken, issueQr(graceSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.status").value("PRESENT"));
+
         UUID lateSession = insertSession(now.minusMinutes(10), now.plusMinutes(50));
         start(lateSession);
         checkIn(memberToken, issueQr(lateSession))
@@ -237,6 +243,7 @@ class SessionCheckInIntegrationTest {
                 .andExpect(jsonPath("$.result.sessionStatus").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.result.checkInClosesAt").isString())
                 .andExpect(jsonPath("$.result.summary.totalCount").value(total))
+                .andExpect(jsonPath("$.result.summary.checkedInCount").value(2))
                 .andExpect(jsonPath("$.result.summary.presentCount").value(1))
                 .andExpect(jsonPath("$.result.summary.lateCount").value(1))
                 .andExpect(jsonPath("$.result.summary.notCheckedInCount").value(total - 2))
@@ -364,6 +371,70 @@ class SessionCheckInIntegrationTest {
                 .andExpect(jsonPath("$.code").value("SESSION4041"));
         updateAttendance(sessionId, memberId, memberToken, "{\"status\":\"PRESENT\"}")
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void returnsMySessionCardForEachHomeState() throws Exception {
+        jdbc.update("DELETE FROM attendances");
+        jdbc.update("DELETE FROM session_attendance_targets");
+        jdbc.update("DELETE FROM study_sessions");
+        long lateMemberId = insertMember("MEMBER");
+        long absentMemberId = insertMember("MEMBER");
+        String absentToken = bearer(absentMemberId);
+
+        mySession(memberToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SESSION2010"))
+                .andExpect(jsonPath("$.result.state").value("NONE"))
+                .andExpect(jsonPath("$.result.session").value((Object) null));
+
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID first = insertSession(now.plusDays(1), now.plusDays(1).plusHours(2));
+        mySession(memberToken)
+                .andExpect(jsonPath("$.result.state").value("UPCOMING"))
+                .andExpect(jsonPath("$.result.session.sessionId").value(first.toString()))
+                .andExpect(jsonPath("$.result.checkedIn").value(false));
+
+        start(first);
+        mySession(memberToken)
+                .andExpect(jsonPath("$.result.state").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.result.checkedIn").value(false))
+                .andExpect(jsonPath("$.result.attendanceStatus").value((Object) null));
+
+        checkIn(memberToken, issueQr(first)).andExpect(status().isOk());
+        updateAttendance(first, lateMemberId, adminToken, "{\"status\":\"LATE\"}").andExpect(status().isOk());
+        mySession(memberToken)
+                .andExpect(jsonPath("$.result.state").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.result.checkedIn").value(true))
+                .andExpect(jsonPath("$.result.attendanceStatus").value("PRESENT"))
+                .andExpect(jsonPath("$.result.checkedInAt").isString());
+        mySession(bearer(lateMemberId))
+                .andExpect(jsonPath("$.result.checkedIn").value(true))
+                .andExpect(jsonPath("$.result.attendanceStatus").value("LATE"));
+
+        mvc.perform(post(ADMIN_BASE + "/" + first + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk());
+        mySession(memberToken).andExpect(jsonPath("$.result.state").value("NONE"));
+        mySession(absentToken)
+                .andExpect(jsonPath("$.result.state").value("ENDED"))
+                .andExpect(jsonPath("$.result.session.sessionId").value(first.toString()))
+                .andExpect(jsonPath("$.result.attendanceStatus").value("ABSENT"));
+
+        UUID second = insertSession(now.plusDays(7), now.plusDays(7).plusHours(2));
+        mySession(memberToken)
+                .andExpect(jsonPath("$.result.state").value("UPCOMING"))
+                .andExpect(jsonPath("$.result.session.sessionId").value(second.toString()));
+        mySession(absentToken).andExpect(jsonPath("$.result.state").value("ENDED"));
+
+        start(second);
+        mySession(absentToken)
+                .andExpect(jsonPath("$.result.state").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.result.session.sessionId").value(second.toString()));
+        mvc.perform(get("/api/v1/sessions/current")).andExpect(status().isUnauthorized());
+    }
+
+    private ResultActions mySession(String bearer) throws Exception {
+        return mvc.perform(get("/api/v1/sessions/current").header(HttpHeaders.AUTHORIZATION, bearer));
     }
 
     private ResultActions updateAttendance(UUID sessionId, long targetMemberId, String bearer, String body)

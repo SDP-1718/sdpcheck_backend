@@ -15,6 +15,7 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
 	Optional<Session> findByIdAndDeletedAtIsNull(UUID id);
 
 	// In-progress sessions come first, then not-yet-finished scheduled sessions by start time.
+	// Sessions without an end time stay startable until their check-in window closes.
 	@Query("""
 			SELECT s FROM Session s
 			WHERE s.deletedAt IS NULL
@@ -22,8 +23,16 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
 				AND s.endedAt IS NULL
 				AND (s.startedAt IS NOT NULL
 					OR s.endsAt > :now
-					OR (s.endsAt IS NULL AND s.startsAt > :now))
+					OR (s.endsAt IS NULL AND s.startsAt > :startableAfter))
 			ORDER BY CASE WHEN s.startedAt IS NOT NULL THEN 0 ELSE 1 END, s.startsAt ASC, s.id ASC
 			""")
-	List<Session> findNextSessions(@Param("now") OffsetDateTime now, Pageable pageable);
+	List<Session> findNextSessions(
+			@Param("now") OffsetDateTime now,
+			@Param("startableAfter") OffsetDateTime startableAfter,
+			Pageable pageable
+	);
+
+	Optional<Session> findFirstByStartedAtIsNotNullAndEndedAtIsNullAndCancelledAtIsNullAndDeletedAtIsNullOrderByStartedAtDesc();
+
+	Optional<Session> findFirstByEndedAtIsNotNullAndCancelledAtIsNullAndDeletedAtIsNullOrderByEndedAtDesc();
 }

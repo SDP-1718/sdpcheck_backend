@@ -16,10 +16,11 @@ public record CreateSessionResDTO(
 		@JsonFormat(pattern = "HH:mm") LocalTime endTime,
 		String location,
 		SessionStatus status,
-		OffsetDateTime createdAt
+		OffsetDateTime createdAt,
+		int createdCount
 ) {
 
-	public static CreateSessionResDTO from(Session session) {
+	public static CreateSessionResDTO from(Session session, int createdCount) {
 		return new CreateSessionResDTO(
 				session.getId(),
 				session.getTitle(),
@@ -28,7 +29,8 @@ public record CreateSessionResDTO(
 				session.getEndTime(),
 				session.getLocation(),
 				session.getStatus(),
-				Session.inZone(session.getCreatedAt())
+				Session.inZone(session.getCreatedAt()),
+				createdCount
 		);
 	}
 }

@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -25,6 +26,9 @@ import lombok.NoArgsConstructor;
 public class Session {
 
 	public static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
+	// Check-ins up to start + 5 minutes are PRESENT, then LATE until start + 20 minutes.
+	public static final Duration PRESENT_GRACE_PERIOD = Duration.ofMinutes(5);
+	public static final Duration CHECK_IN_WINDOW = Duration.ofMinutes(20);
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)
@@ -76,7 +80,7 @@ public class Session {
 		return new Session(
 				title,
 				toInstant(sessionDate, startTime),
-				toInstant(sessionDate, endTime),
+				endTime == null ? null : toInstant(sessionDate, endTime),
 				location,
 				semesterId
 		);
@@ -93,7 +97,7 @@ public class Session {
 	public void update(String title, LocalDate sessionDate, LocalTime startTime, LocalTime endTime, String location) {
 		this.title = title;
 		this.startsAt = toInstant(sessionDate, startTime);
-		this.endsAt = toInstant(sessionDate, endTime);
+		this.endsAt = endTime == null ? null : toInstant(sessionDate, endTime);
 		this.location = location;
 		this.updatedAt = OffsetDateTime.now();
 	}
@@ -121,6 +125,14 @@ public class Session {
 			return SessionStatus.IN_PROGRESS;
 		}
 		return SessionStatus.SCHEDULED;
+	}
+
+	public OffsetDateTime getPresentDeadline() {
+		return startsAt.plus(PRESENT_GRACE_PERIOD);
+	}
+
+	public OffsetDateTime getCheckInClosesAt() {
+		return startsAt.plus(CHECK_IN_WINDOW);
 	}
 
 	public LocalDate getSessionDate() {

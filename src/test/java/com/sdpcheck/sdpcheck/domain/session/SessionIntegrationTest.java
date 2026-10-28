@@ -218,6 +218,54 @@ class SessionIntegrationTest {
     }
 
     @Test
+    void createsWithOptionalFieldsAndRepeatsWeeklyUntilSemesterEnd() throws Exception {
+        admin(post(BASE).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"장소 미정 세션\",\"sessionDate\":\"" + future + "\",\"startTime\":\"19:00\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.result.endTime").value((Object) null))
+                .andExpect(jsonPath("$.result.location").value((Object) null))
+                .andExpect(jsonPath("$.result.createdCount").value(1));
+
+        String weekday = future.getDayOfWeek().name().substring(0, 3);
+        String repeat = "{\"title\":\"반복 세션\",\"sessionDate\":\"" + future + "\",\"startTime\":\"19:00\","
+                + "\"repeatWeekly\":true,\"repeatDays\":%s}";
+        admin(post(BASE).contentType(MediaType.APPLICATION_JSON).content(repeat.formatted("[\"XYZ\"]")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("SESSION4001"));
+        admin(post(BASE).contentType(MediaType.APPLICATION_JSON).content(repeat.formatted("[]")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("SESSION4001"));
+        admin(post(BASE).contentType(MediaType.APPLICATION_JSON).content(repeat.formatted("[\"" + weekday + "\"]")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SESSION4099"));
+
+        UUID semesterId = UUID.randomUUID();
+        LocalDate semesterEnd = future.plusDays(20);
+        jdbc.update("""
+                INSERT INTO semesters (id, name, starts_on, ends_on, is_current)
+                VALUES (?, '2026-2', current_date - 30, ?, true)
+                """, semesterId, semesterEnd);
+        try {
+            String secondDay = future.getDayOfWeek().plus(2).name().substring(0, 3);
+            long expected = future.datesUntil(semesterEnd.plusDays(1))
+                    .filter(date -> date.equals(future)
+                            || date.getDayOfWeek() == future.getDayOfWeek()
+                            || date.getDayOfWeek() == future.getDayOfWeek().plus(2))
+                    .count();
+
+            admin(post(BASE).contentType(MediaType.APPLICATION_JSON)
+                    .content(repeat.formatted("[\"" + weekday + "\",\"" + secondDay + "\"]")))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.result.sessionDate").value(future.toString()))
+                    .andExpect(jsonPath("$.result.createdCount").value((int) expected));
+            assertEquals(expected, jdbc.queryForObject("""
+                    SELECT count(*) FROM study_sessions
+                    WHERE title = '반복 세션' AND semester_id = ? AND deleted_at IS NULL
+                    """, Long.class, semesterId));
+        } finally {
+            jdbc.update("UPDATE study_sessions SET semester_id = NULL WHERE semester_id = ?", semesterId);
+            jdbc.update("DELETE FROM semesters WHERE id = ?", semesterId);
+        }
+    }
+
+    @Test
     void requiresAdmin() throws Exception {
         String body = body("세션", future, "19:00", "21:00", "a");
         mvc.perform(post(BASE).contentType(MediaType.APPLICATION_JSON).content(body))

@@ -20,6 +20,7 @@ public record SessionAttendanceResDTO(
 
 	public record Summary(
 			int totalCount,
+			int checkedInCount,
 			int presentCount,
 			int lateCount,
 			int notCheckedInCount,

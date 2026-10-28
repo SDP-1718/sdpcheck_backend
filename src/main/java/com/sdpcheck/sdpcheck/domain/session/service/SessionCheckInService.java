@@ -2,9 +2,11 @@ package com.sdpcheck.sdpcheck.domain.session.service;
 
 import com.sdpcheck.sdpcheck.domain.attendance.enums.AttendanceStatus;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CheckInReqDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateAttendanceReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CheckInResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionAttendanceResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionQrResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateAttendanceResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.LiveAttendanceStatus;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
@@ -69,7 +71,12 @@ public class SessionCheckInService {
 		AttendanceStatus status = resolveStatus(session, checkedInAt);
 
 		if (!sessionAttendanceRepository.insertAttendance(sessionId, memberId, status, checkedInAt)) {
-			throw new SessionException(SessionErrorCode.ALREADY_CHECKED_IN);
+			boolean markedAbsent = sessionAttendanceRepository.findAttendanceStatus(sessionId, memberId)
+					.filter(existing -> existing == AttendanceStatus.ABSENT)
+					.isPresent();
+			throw new SessionException(markedAbsent
+					? SessionErrorCode.ATTENDANCE_MARKED_ABSENT
+					: SessionErrorCode.ALREADY_CHECKED_IN);
 		}
 
 		return new CheckInResDTO(sessionId, status, Session.inZone(checkedInAt));
@@ -106,12 +113,53 @@ public class SessionCheckInService {
 		);
 	}
 
+	@Transactional
+	public UpdateAttendanceResDTO updateAttendance(UUID sessionId, long memberId, UpdateAttendanceReqDTO request) {
+		AttendanceStatus status = parseStatus(request);
+
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() == SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_STARTED);
+		}
+		sessionAttendanceRepository.findTargetAttendance(sessionId, memberId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.ATTENDANCE_TARGET_NOT_FOUND));
+
+		sessionAttendanceRepository.upsertAttendanceStatus(sessionId, memberId, status, OffsetDateTime.now());
+
+		SessionAttendanceRepository.TargetAttendance updated = sessionAttendanceRepository
+				.findTargetAttendance(sessionId, memberId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.ATTENDANCE_TARGET_NOT_FOUND));
+		return new UpdateAttendanceResDTO(
+				sessionId,
+				updated.memberId(),
+				updated.name(),
+				updated.generation(),
+				updated.status() == null ? AttendanceStatus.ABSENT : updated.status(),
+				Session.inZone(updated.checkedInAt())
+		);
+	}
+
+	private AttendanceStatus parseStatus(UpdateAttendanceReqDTO request) {
+		if (request == null || request.status() == null) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
+		}
+		try {
+			return AttendanceStatus.valueOf(request.status());
+		} catch (IllegalArgumentException exception) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
+		}
+	}
+
 	private LiveAttendanceStatus toLiveStatus(AttendanceStatus status, boolean checkInClosed) {
 		if (status == AttendanceStatus.PRESENT) {
 			return LiveAttendanceStatus.PRESENT;
 		}
 		if (status == AttendanceStatus.LATE) {
 			return LiveAttendanceStatus.LATE;
+		}
+		if (status == AttendanceStatus.ABSENT) {
+			return LiveAttendanceStatus.ABSENT;
 		}
 		return checkInClosed ? LiveAttendanceStatus.ABSENT : LiveAttendanceStatus.NOT_CHECKED_IN;
 	}

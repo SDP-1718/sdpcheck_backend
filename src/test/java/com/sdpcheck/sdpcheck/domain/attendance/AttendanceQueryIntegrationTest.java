@@ -305,12 +305,23 @@ class AttendanceQueryIntegrationTest {
     }
 
     @Test
-    void databaseRejectsAnAbsentCheckInRecord() {
+    void databaseRejectsAnAbsentRecordWithACheckInTime() {
         session(uuid(1), semesterId, STARTS_AT, true);
         target(uuid(1), memberId);
 
         assertThrows(DataIntegrityViolationException.class,
                 () -> checkIn(uuid(1), memberId, "ABSENT", STARTS_AT.plusMinutes(6)));
+    }
+
+    @Test
+    void databaseAcceptsAnAbsentRecordWithoutACheckInTime() {
+        session(uuid(1), semesterId, STARTS_AT, true);
+        target(uuid(1), memberId);
+
+        checkIn(uuid(1), memberId, "ABSENT", null);
+        assertEquals("ABSENT", jdbc.queryForObject(
+                "SELECT status FROM attendances WHERE session_id = ? AND member_id = ?",
+                String.class, uuid(1), memberId));
     }
 
     @Test

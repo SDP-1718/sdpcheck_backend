@@ -29,6 +29,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -268,6 +269,13 @@ class SessionCheckInIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.sessionStatus").value("COMPLETED"))
                 .andExpect(memberStatus(memberId, "ABSENT"));
+        assertEquals(
+                jdbc.queryForObject("SELECT count(*) FROM session_attendance_targets WHERE session_id = ?",
+                        Integer.class, sessionId),
+                jdbc.queryForObject("""
+                        SELECT count(*) FROM attendances
+                        WHERE session_id = ? AND status = 'ABSENT' AND checked_in_at IS NULL
+                        """, Integer.class, sessionId));
     }
 
     @Test
@@ -285,8 +293,88 @@ class SessionCheckInIntegrationTest {
         liveAttendance(sessionId, memberToken).andExpect(status().isForbidden());
     }
 
+    @Test
+    void adminUpdatesAttendanceStatusManually() throws Exception {
+        long otherMemberId = insertMember("MEMBER");
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
+        start(sessionId);
+        checkIn(memberToken, issueQr(sessionId)).andExpect(status().isOk());
+        OffsetDateTime checkedInAt = jdbc.queryForObject(
+                "SELECT checked_in_at FROM attendances WHERE session_id = ? AND member_id = ?",
+                OffsetDateTime.class, sessionId, memberId);
+
+        updateAttendance(sessionId, memberId, adminToken, "{\"status\":\"LATE\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SESSION2009"))
+                .andExpect(jsonPath("$.result.memberId").value(memberId))
+                .andExpect(jsonPath("$.result.status").value("LATE"));
+        assertEquals(checkedInAt.toInstant(), jdbc.queryForObject(
+                "SELECT checked_in_at FROM attendances WHERE session_id = ? AND member_id = ?",
+                OffsetDateTime.class, sessionId, memberId).toInstant());
+
+        updateAttendance(sessionId, memberId, adminToken, "{\"status\":\"ABSENT\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.status").value("ABSENT"))
+                .andExpect(jsonPath("$.result.checkedInAt").value((Object) null));
+        assertEquals("ABSENT", jdbc.queryForObject(
+                "SELECT status FROM attendances WHERE session_id = ? AND member_id = ? AND checked_in_at IS NULL",
+                String.class, sessionId, memberId));
+        liveAttendance(sessionId, adminToken)
+                .andExpect(memberStatus(memberId, "ABSENT"))
+                .andExpect(memberStatus(otherMemberId, "NOT_CHECKED_IN"));
+        checkIn(memberToken, issueQr(sessionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION4098"));
+
+        mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk());
+        assertEquals("ABSENT", jdbc.queryForObject(
+                "SELECT status FROM attendances WHERE session_id = ? AND member_id = ?",
+                String.class, sessionId, otherMemberId));
+        updateAttendance(sessionId, otherMemberId, adminToken, "{\"status\":\"PRESENT\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.status").value("PRESENT"))
+                .andExpect(jsonPath("$.result.checkedInAt").isString());
+        liveAttendance(sessionId, adminToken)
+                .andExpect(memberStatus(otherMemberId, "PRESENT"))
+                .andExpect(memberStatus(memberId, "ABSENT"));
+    }
+
+    @Test
+    void rejectsInvalidManualAttendanceUpdates() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
+
+        updateAttendance(sessionId, memberId, adminToken, "{\"status\":\"PRESENT\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION4093"));
+        start(sessionId);
+
+        for (String body : new String[] {"{}", "{\"status\":\"NOT_CHECKED_IN\"}", "{\"status\":\"present\"}"}) {
+            updateAttendance(sessionId, memberId, adminToken, body)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("SESSION4001"));
+        }
+        updateAttendance(sessionId, adminId, adminToken, "{\"status\":\"PRESENT\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION4042"));
+        updateAttendance(UUID.randomUUID(), memberId, adminToken, "{\"status\":\"PRESENT\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION4041"));
+        updateAttendance(sessionId, memberId, memberToken, "{\"status\":\"PRESENT\"}")
+                .andExpect(status().isForbidden());
+    }
+
+    private ResultActions updateAttendance(UUID sessionId, long targetMemberId, String bearer, String body)
+            throws Exception {
+        return mvc.perform(patch(ADMIN_BASE + "/" + sessionId + "/attendances/" + targetMemberId)
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
     private ResultActions liveAttendance(UUID sessionId, String bearer) throws Exception {
-        return mvc.perform(get(ADMIN_BASE + "/" + sessionId + "/attendances")
+        return mvc.perform(get(ADMIN_BASE + "/" + sessionId + "/check-ins")
                 .header(HttpHeaders.AUTHORIZATION, bearer));
     }
 

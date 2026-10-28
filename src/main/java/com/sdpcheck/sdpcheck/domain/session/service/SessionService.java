@@ -159,6 +159,7 @@ public class SessionService {
 
 		validateEndable(session);
 		session.end(OffsetDateTime.now());
+		sessionAttendanceRepository.markRemainingTargetsAbsent(sessionId);
 
 		return EndSessionResDTO.from(session);
 	}

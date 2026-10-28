@@ -3,8 +3,10 @@ package com.sdpcheck.sdpcheck.domain.session.service;
 import com.sdpcheck.sdpcheck.domain.attendance.enums.AttendanceStatus;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CheckInReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CheckInResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionAttendanceResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionQrResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
+import com.sdpcheck.sdpcheck.domain.session.enums.LiveAttendanceStatus;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
@@ -12,7 +14,10 @@ import com.sdpcheck.sdpcheck.domain.session.repository.SessionAttendanceReposito
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,6 +73,66 @@ public class SessionCheckInService {
 		}
 
 		return new CheckInResDTO(sessionId, status, Session.inZone(checkedInAt));
+	}
+
+	public SessionAttendanceResDTO getLiveAttendance(UUID sessionId) {
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() == SessionStatus.SCHEDULED) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_STARTED);
+		}
+
+		OffsetDateTime checkInClosesAt = session.getStartsAt().plus(LATE_GRACE_PERIOD);
+		boolean checkInClosed = session.getStatus() != SessionStatus.IN_PROGRESS
+				|| OffsetDateTime.now().isAfter(checkInClosesAt);
+
+		List<SessionAttendanceResDTO.MemberAttendance> members = sessionAttendanceRepository
+				.findTargetAttendances(sessionId).stream()
+				.map(target -> new SessionAttendanceResDTO.MemberAttendance(
+						target.memberId(),
+						target.name(),
+						target.generation(),
+						toLiveStatus(target.status(), checkInClosed),
+						Session.inZone(target.checkedInAt())
+				))
+				.toList();
+
+		return new SessionAttendanceResDTO(
+				sessionId,
+				session.getStatus(),
+				Session.inZone(checkInClosesAt),
+				summarize(members),
+				members
+		);
+	}
+
+	private LiveAttendanceStatus toLiveStatus(AttendanceStatus status, boolean checkInClosed) {
+		if (status == AttendanceStatus.PRESENT) {
+			return LiveAttendanceStatus.PRESENT;
+		}
+		if (status == AttendanceStatus.LATE) {
+			return LiveAttendanceStatus.LATE;
+		}
+		return checkInClosed ? LiveAttendanceStatus.ABSENT : LiveAttendanceStatus.NOT_CHECKED_IN;
+	}
+
+	private SessionAttendanceResDTO.Summary summarize(List<SessionAttendanceResDTO.MemberAttendance> members) {
+		Map<LiveAttendanceStatus, Long> counts = members.stream()
+				.collect(Collectors.groupingBy(SessionAttendanceResDTO.MemberAttendance::status, Collectors.counting()));
+		int present = counts.getOrDefault(LiveAttendanceStatus.PRESENT, 0L).intValue();
+		int late = counts.getOrDefault(LiveAttendanceStatus.LATE, 0L).intValue();
+		int total = members.size();
+		// Late arrivals count toward the attendance rate.
+		double attendanceRate = total == 0 ? 0.0 : Math.round((present + late) * 1000.0 / total) / 10.0;
+
+		return new SessionAttendanceResDTO.Summary(
+				total,
+				present,
+				late,
+				counts.getOrDefault(LiveAttendanceStatus.NOT_CHECKED_IN, 0L).intValue(),
+				counts.getOrDefault(LiveAttendanceStatus.ABSENT, 0L).intValue(),
+				attendanceRate
+		);
 	}
 
 	private Session findInProgressSession(UUID sessionId) {

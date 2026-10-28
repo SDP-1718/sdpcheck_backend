@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.ResultMatcher;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -24,6 +25,8 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -208,6 +211,87 @@ class SessionCheckInIntegrationTest {
         checkIn(memberToken, qr)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SESSION4092"));
+    }
+
+    @Test
+    void returnsLiveAttendanceWhileCheckInIsOpen() throws Exception {
+        long lateMemberId = insertMember("MEMBER");
+        long waitingMemberId = insertMember("MEMBER");
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
+        start(sessionId);
+        checkIn(memberToken, issueQr(sessionId)).andExpect(status().isOk());
+        jdbc.update("""
+                INSERT INTO attendances (session_id, member_id, status, checked_in_at)
+                VALUES (?, ?, 'LATE', now())
+                """, sessionId, lateMemberId);
+
+        int total = jdbc.queryForObject(
+                "SELECT count(*) FROM session_attendance_targets WHERE session_id = ?", Integer.class, sessionId);
+        double rate = Math.round(2 * 1000.0 / total) / 10.0;
+
+        liveAttendance(sessionId, adminToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SESSION2008"))
+                .andExpect(jsonPath("$.result.sessionStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.result.checkInClosesAt").isString())
+                .andExpect(jsonPath("$.result.summary.totalCount").value(total))
+                .andExpect(jsonPath("$.result.summary.presentCount").value(1))
+                .andExpect(jsonPath("$.result.summary.lateCount").value(1))
+                .andExpect(jsonPath("$.result.summary.notCheckedInCount").value(total - 2))
+                .andExpect(jsonPath("$.result.summary.absentCount").value(0))
+                .andExpect(jsonPath("$.result.summary.attendanceRate").value(rate))
+                .andExpect(jsonPath("$.result.members.length()").value(total))
+                .andExpect(memberStatus(memberId, "PRESENT"))
+                .andExpect(memberStatus(lateMemberId, "LATE"))
+                .andExpect(memberStatus(waitingMemberId, "NOT_CHECKED_IN"))
+                .andExpect(jsonPath("$.result.members[?(@.memberId == %d)].checkedInAt", memberId)
+                        .value(contains(notNullValue())));
+    }
+
+    @Test
+    void marksMissingCheckInsAbsentAfterCheckInCloses() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.minusMinutes(30), now.plusMinutes(30));
+        start(sessionId);
+
+        liveAttendance(sessionId, adminToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.summary.presentCount").value(0))
+                .andExpect(jsonPath("$.result.summary.notCheckedInCount").value(0))
+                .andExpect(jsonPath("$.result.summary.attendanceRate").value(0.0))
+                .andExpect(memberStatus(memberId, "ABSENT"));
+
+        mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk());
+        liveAttendance(sessionId, adminToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.sessionStatus").value("COMPLETED"))
+                .andExpect(memberStatus(memberId, "ABSENT"));
+    }
+
+    @Test
+    void rejectsLiveAttendanceBeforeStartOrForNonAdmin() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusHours(1), now.plusHours(3));
+
+        liveAttendance(sessionId, adminToken)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION4093"));
+        liveAttendance(UUID.randomUUID(), adminToken)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION4041"));
+        start(sessionId);
+        liveAttendance(sessionId, memberToken).andExpect(status().isForbidden());
+    }
+
+    private ResultActions liveAttendance(UUID sessionId, String bearer) throws Exception {
+        return mvc.perform(get(ADMIN_BASE + "/" + sessionId + "/attendances")
+                .header(HttpHeaders.AUTHORIZATION, bearer));
+    }
+
+    private static ResultMatcher memberStatus(long id, String status) {
+        return jsonPath("$.result.members[?(@.memberId == %d)].status", id).value(contains(status));
     }
 
     private void start(UUID sessionId) throws Exception {

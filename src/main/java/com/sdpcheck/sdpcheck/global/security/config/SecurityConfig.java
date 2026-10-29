@@ -28,6 +28,10 @@ public class SecurityConfig {
                                                    SecurityExceptionHandler exceptionHandler) throws Exception{
         var paths = PathPatternRequestMatcher.withDefaults();
         var publicEndpoints = new OrRequestMatcher(
+                paths.matcher(HttpMethod.GET, "/swagger-ui.html"),
+                paths.matcher(HttpMethod.GET, "/swagger-ui/**"),
+                paths.matcher(HttpMethod.GET, "/v3/api-docs"),
+                paths.matcher(HttpMethod.GET, "/v3/api-docs/**"),
                 paths.matcher(HttpMethod.POST, "/api/v1/auth/signup"),
                 paths.matcher(HttpMethod.POST, "/api/v1/auth/login"),
                 paths.matcher(HttpMethod.POST, "/api/v1/auth/logout"),

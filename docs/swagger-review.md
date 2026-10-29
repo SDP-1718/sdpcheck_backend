@@ -8,7 +8,7 @@ PR #36의 `@Operation(summary, description)`, `bearerAuth`, 빈 204 응답 문�
 - 사용 중인 온보딩의 `@Hidden`을 제거했습니다. 회원가입·로그인 아이디 중복 확인의 숨김은 유지합니다.
 - 실제 성공 응답에 맞춰 카카오 로그인·콜백은 302, 로그아웃·푸시 토큰 삭제는 본문 없는 204로 표시합니다.
 - 회원 API와 온보딩에 Bearer 인증을 표시하고 서버가 주입하는 인증 객체는 숨깁니다.
-- Swagger UI 의존성·인증 스키마·GET 접근 허용을 추가합니다. PR #36과 동일하게 prod에서는 문서 생성을 비활성화합니다.
+- Swagger UI 의존성·인증 스키마·GET 접근 허용을 추가합니다. 2026-10-29 요청에 따라 prod에서도 API 문서와 Swagger UI를 활성화합니다. 이 부분은 PR #36의 비활성화 설정과 다릅니다.
 - API 실행 로직과 .env는 변경하지 않았습니다.
 
 아래는 기존 파일 7개의 전체 변경 diff입니다. 신규 OpenApiConfig는 뒤에 전체 코드로 첨부합니다.
@@ -286,8 +286,8 @@ index 2b76ceb..9cafc52 100644
 \ No newline at end of file
 +jwt.refresh-cookie-secure=true
 +
-+springdoc.api-docs.enabled=false
-+springdoc.swagger-ui.enabled=false
++springdoc.api-docs.enabled=true
++springdoc.swagger-ui.enabled=true
 ```
 
 New: `src/main/java/com/sdpcheck/sdpcheck/global/config/OpenApiConfig.java`

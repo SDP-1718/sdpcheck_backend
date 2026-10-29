@@ -29,6 +29,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -48,6 +49,16 @@ class MemberControllerTest {
     @Autowired JwtProvider jwt;
     @MockitoBean MemberRepository members;
     @MockitoBean AttendanceInsightService attendanceInsightService;
+
+    @Test
+    void emptyCorsAllowlistRejectsCrossOriginPreflight() throws Exception {
+        mvc.perform(options(URL)
+                        .header(HttpHeaders.ORIGIN, "https://frontend.example.com")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+        verifyNoInteractions(members, attendanceInsightService);
+    }
 
     @Test
     void myInfoReturnsOnlyAuthenticatedMembersNameGenerationAndRole() throws Exception {

@@ -1,7 +1,14 @@
 package com.sdpcheck.sdpcheck.global.security.config;
 
+import com.sdpcheck.sdpcheck.domain.auth.config.KakaoConfig;
+import com.sdpcheck.sdpcheck.domain.auth.service.KakaoOAuthStateService;
 import com.sdpcheck.sdpcheck.domain.auth.controller.AuthController;
+import com.sdpcheck.sdpcheck.domain.auth.controller.KakaoAuthController;
+import com.sdpcheck.sdpcheck.domain.auth.cookie.RefreshTokenCookieProvider;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.LoginRequest;
+import com.sdpcheck.sdpcheck.domain.auth.dto.request.OnboardingRequest;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.AccessTokenResponse;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.OnboardingResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResult;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResponse;
@@ -32,8 +39,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -42,24 +51,186 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {AuthController.class, SecurityConfigTest.ProtectedController.class}, properties = {
+@WebMvcTest(controllers = {AuthController.class, KakaoAuthController.class,
+        SecurityConfigTest.ProtectedController.class}, properties = {
         "spring.config.import=",
         "jwt.secret=test-only-secret-key-for-ci-0123456789-abcdefghij",
         "jwt.access-token-expiration=60000",
         "jwt.refresh-token-expiration=120000",
-        "jwt.refresh-cookie-secure=true"
+        "jwt.refresh-cookie-secure=true",
+        "kakao.client-id=test-client",
+        "kakao.redirect-uri=http://localhost:8080/login/oauth2/code/kakao",
+        "auth.frontend-callback-url=http://localhost:5173/auth/callback"
 })
-@Import({SecurityConfig.class, JwtProvider.class, SecurityExceptionHandler.class,
-        GlobalExceptionHandler.class, SecurityConfigTest.ProtectedController.class})
+@Import({SecurityConfig.class, JwtProvider.class, SecurityExceptionHandler.class, RefreshTokenCookieProvider.class,
+        KakaoConfig.class, KakaoOAuthStateService.class, GlobalExceptionHandler.class, SecurityConfigTest.ProtectedController.class})
 class SecurityConfigTest {
     @Autowired
     private MockMvc mockMvc;
     @Autowired
     private JwtProvider jwtProvider;
+    @Autowired
+    private KakaoOAuthStateService states;
     @MockitoBean
     private AuthService authService;
     @MockitoBean
     private MemberRepository memberRepository;
+
+    @Test
+    void kakaoCallbackRemainsPublicAndRedirectsWithRefreshCookie() throws Exception {
+        when(authService.kakaoLogin("authorization-code")).thenReturn("kakao-refresh");
+        String state = states.createState();
+
+        mockMvc.perform(get("/login/oauth2/code/kakao")
+                        .param("code", "authorization-code")
+                        .param("state", state)
+                        .cookie(new Cookie(KakaoOAuthStateService.COOKIE_NAME, state))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer stale-token"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "http://localhost:5173/auth/callback"))
+                .andExpect(header().stringValues(HttpHeaders.SET_COOKIE,
+                        hasItem(containsString("refreshToken=kakao-refresh"))))
+                .andExpect(header().stringValues(HttpHeaders.SET_COOKIE,
+                        hasItem(containsString("HttpOnly"))))
+                .andExpect(content().string(""));
+
+        verify(authService).kakaoLogin("authorization-code");
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void loginStartIsPublicAndSetsStateCookie() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/kakao/login")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer stale-token"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, containsString("https://kauth.kakao.com/oauth/authorize?")))
+                .andExpect(header().string(HttpHeaders.LOCATION, containsString("state=")))
+                .andExpect(header().string(HttpHeaders.LOCATION, containsString("client_id=test-client")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("kakaoOAuthState=")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=300")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("SameSite=Lax")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/login/oauth2/code/kakao")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void missingOrMismatchedStateCannotIssueTokens() throws Exception {
+        mockMvc.perform(get("/login/oauth2/code/kakao").param("code", "code"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_OAUTH_STATE"));
+        mockMvc.perform(get("/login/oauth2/code/kakao").param("code", "code")
+                        .param("state", states.createState())
+                        .cookie(new Cookie(KakaoOAuthStateService.COOKIE_NAME, states.createState())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_OAUTH_STATE"))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void cancelledLoginClearsStateWithoutCallingAuthService() throws Exception {
+        String state = states.createState();
+        mockMvc.perform(get("/login/oauth2/code/kakao").param("error", "access_denied")
+                        .param("state", state).cookie(new Cookie(KakaoOAuthStateService.COOKIE_NAME, state)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("KAKAO_AUTHORIZATION_CODE_MISSING"))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("kakaoOAuthState=;")));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void completedMemberReceivesHomeInformationWithAccessToken() throws Exception {
+        when(authService.issueAccessToken("current-refresh"))
+                .thenReturn(new AccessTokenResponse("access-token", true, "회원", 17));
+
+        mockMvc.perform(post("/api/v1/auth/access-token")
+                        .cookie(new Cookie("refreshToken", "current-refresh")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.accessToken").value("access-token"))
+                .andExpect(jsonPath("$.result.onboardingCompleted").value(true))
+                .andExpect(jsonPath("$.result.name").value("회원"))
+                .andExpect(jsonPath("$.result.generation").value(17))
+                .andExpect(jsonPath("$.result.password").doesNotExist())
+                .andExpect(jsonPath("$.result.kakaoId").doesNotExist());
+
+        verify(authService).issueAccessToken("current-refresh");
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void accessTokenAndHomeInformationRequireRefreshCookie() throws Exception {
+        when(authService.issueAccessToken(isNull()))
+                .thenThrow(new BusinessException(AuthErrorCode.INVALID_TOKEN));
+        mockMvc.perform(post("/api/v1/auth/access-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
+        verify(authService).issueAccessToken(null);
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void accessTokenEndpointSkipsJwtAuthentication() throws Exception {
+        when(authService.issueAccessToken("current-refresh"))
+                .thenReturn(new AccessTokenResponse("access-token", false, null, null));
+        mockMvc.perform(post("/api/v1/auth/access-token")
+                        .cookie(new Cookie("refreshToken", "current-refresh"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer stale-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.accessToken").value("access-token"))
+                .andExpect(jsonPath("$.result.onboardingCompleted").value(false))
+                .andExpect(jsonPath("$.result.name").value(nullValue()))
+                .andExpect(jsonPath("$.result.generation").value(nullValue()))
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+
+        verify(authService).issueAccessToken("current-refresh");
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void incompleteMemberCanOnboardUsingAuthenticatedMemberId() throws Exception {
+        when(memberRepository.findById(1L))
+                .thenReturn(Optional.of(Member.createKakaoMember(123L)));
+        when(authService.completeOnboarding(eq(1L), any(OnboardingRequest.class)))
+                .thenReturn(new OnboardingResponse("회원", 17));
+
+        mockMvc.perform(post("/api/v1/auth/onboarding")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.createAccessToken(1L))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"회원\",\"generation\":17,\"inviteCode\":\"invite\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.name").value("회원"))
+                .andExpect(jsonPath("$.result.generation").value(17));
+
+        verify(authService).completeOnboarding(1L, new OnboardingRequest("회원", 17, "invite"));
+    }
+
+    @Test
+    void onboardingRequiresAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"회원\",\"generation\":17,\"inviteCode\":\"invite\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void incompleteMemberCannotAccessGeneralOrAdminApis() throws Exception {
+        when(memberRepository.findById(1L))
+                .thenReturn(Optional.of(Member.createKakaoMember(123L)));
+        String accessToken = jwtProvider.createAccessToken(1L);
+
+        for (String path : new String[]{"/test/protected", "/api/v1/admin/notices"}) {
+            mockMvc.perform(get(path)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        }
+    }
 
     @Test
     void missingTokenIsUnauthorizedWithApiEnvelope() throws Exception {

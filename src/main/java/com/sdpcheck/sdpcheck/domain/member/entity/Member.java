@@ -23,20 +23,26 @@ public class Member {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "kakao_id", unique = true)
+    private Long kakaoId;
+
+    @Column(name = "onboarding_completed", nullable = false)
+    private boolean onboardingCompleted;
+
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column
     private Role role;
 
-    @Column(nullable = false, unique = true, length = 50)
+    @Column(unique = true, length = 50)
     private String loginId;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 255)
     private String password;
 
-    @Column(nullable = false, length = 50)
+    @Column(length = 50)
     private String name;
 
-    @Column(nullable = false)
+    @Column
     private Integer generation;
 
     public Member(
@@ -51,5 +57,28 @@ public class Member {
         this.name = name;
         this.generation = generation;
         this.role = role;
+        this.onboardingCompleted = true;
+    }
+
+    public static Member createKakaoMember(Long kakaoId){
+        if(kakaoId == null || kakaoId <= 0){
+            throw new IllegalArgumentException("유효한 카카오 ID가 필요합니다.");
+        }
+
+        Member member = new Member();
+        member.kakaoId = kakaoId;
+        member.onboardingCompleted = false;
+        return member;
+    }
+
+    public void completeOnboarding(
+            String name,
+            Integer generation,
+            Role role
+    ){
+        this.name=name;
+        this.generation=generation;
+        this.role=role;
+        this.onboardingCompleted=true;
     }
 }

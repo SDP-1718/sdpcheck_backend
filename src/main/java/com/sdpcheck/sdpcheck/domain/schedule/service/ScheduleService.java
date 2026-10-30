@@ -1,19 +1,20 @@
 package com.sdpcheck.sdpcheck.domain.schedule.service;
 
 import com.sdpcheck.sdpcheck.domain.schedule.dto.request.CreateScheduleRequest;
+import com.sdpcheck.sdpcheck.domain.schedule.dto.request.UpdateScheduleRequest;
 import com.sdpcheck.sdpcheck.domain.schedule.dto.response.ScheduleListResponse;
 import com.sdpcheck.sdpcheck.domain.schedule.dto.response.ScheduleResponse;
+import com.sdpcheck.sdpcheck.domain.schedule.exception.ScheduleErrorCode;
 import com.sdpcheck.sdpcheck.domain.schedule.repository.ScheduleRepository;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.CommonErrorCode;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ScheduleService {
@@ -31,6 +32,26 @@ public class ScheduleService {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR);
         }
         return repository.create(UUID.randomUUID(), title, request.startsAt(), request.location(), memberId);
+    }
+
+    @Transactional
+    public ScheduleResponse update(UUID id, UpdateScheduleRequest request) {
+        requireCurrentVersion(id, request.version());
+        return repository.update(id, request);
+    }
+
+    @Transactional
+    public void delete(UUID id, int version) {
+        requireCurrentVersion(id, version);
+        repository.delete(id, version);
+    }
+
+    private void requireCurrentVersion(UUID id, int version) {
+        var event = repository.findActiveForUpdate(id)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND));
+        if (event.version() != version) {
+            throw new BusinessException(ScheduleErrorCode.VERSION_CONFLICT);
+        }
     }
 
     @Transactional(readOnly = true)

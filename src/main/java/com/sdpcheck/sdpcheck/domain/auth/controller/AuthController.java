@@ -1,5 +1,6 @@
 package com.sdpcheck.sdpcheck.domain.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.LoginRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.OnboardingRequest;
 import com.sdpcheck.sdpcheck.domain.auth.dto.request.SignupRequest;
@@ -35,6 +36,7 @@ public class AuthController {
 
     private final RefreshTokenCookieProvider refreshTokenCookieProvider;
 
+    @Operation(summary = "회원가입", description = "회원 정보와 초대코드로 가입하고 로그인 토큰을 발급합니다.")
     @Hidden
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
@@ -120,6 +122,7 @@ public class AuthController {
     }
 
     @Hidden
+    @Operation(summary = "아이디 중복 확인", description = "회원가입에 사용할 로그인 아이디의 사용 가능 여부를 확인합니다.")
     @GetMapping("/check-login-id")
     public ResponseEntity<ApiResponse<CheckLoginIdResponse>> checkLoginId(@RequestParam String loginId) {
         return ResponseEntity.ok().body(ApiResponse.success(authService.checkLoginId(loginId)));

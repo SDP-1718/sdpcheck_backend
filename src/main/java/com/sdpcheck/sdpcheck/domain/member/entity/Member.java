@@ -12,9 +12,11 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 @Getter
 @Entity
+@DynamicUpdate
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(name = "members")
 public class Member {
@@ -90,6 +92,10 @@ public class Member {
 
     public void updateSessionStartEnabled(boolean sessionStartEnabled) {
         this.sessionStartEnabled = sessionStartEnabled;
+    }
+
+    public void changeRole(Role role) {
+        this.role = role;
     }
 
     public void updateNewNoticeEnabled(boolean newNoticeEnabled) {

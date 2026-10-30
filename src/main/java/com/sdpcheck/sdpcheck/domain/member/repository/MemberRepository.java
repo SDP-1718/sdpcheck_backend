@@ -2,7 +2,9 @@ package com.sdpcheck.sdpcheck.domain.member.repository;
 
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +18,12 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     Optional<Member> findByLoginId(String loginId);
 
     Optional<Member> findByKakaoId(Long kakaoId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM Member m WHERE m.id = :memberId")
+    Optional<Member> findByIdForUpdate(@Param("memberId") Long memberId);
+
+    long countByRoleAndOnboardingCompletedTrue(Role role);
 
     @Query("""
             SELECT DISTINCT m.generation

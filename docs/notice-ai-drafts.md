@@ -39,7 +39,7 @@
 - DB 서버 시각과 사용자별 트랜잭션 advisory lock을 사용하므로 서버 재시작과 여러 인스턴스에서도 제한 유지.
 - `notice_draft_requests`에는 회원 ID와 호출 시각만 저장. 메모와 초안 내용은 저장하지 않음.
 - 같은 회원의 다음 호출에서 만료된 기록을 정리. 회원별 최대 10행 유지, 회원 삭제 시 함께 삭제.
-- 새 Flyway 마이그레이션: `V10__create_notice_draft_requests.sql`.
+- 새 Flyway 마이그레이션: `V14__create_notice_draft_requests.sql`.
 
 ## 기능 비활성화
 

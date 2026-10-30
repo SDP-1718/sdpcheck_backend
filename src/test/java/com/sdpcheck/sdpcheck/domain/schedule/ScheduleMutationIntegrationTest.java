@@ -65,7 +65,7 @@ class ScheduleMutationIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/v1/auth/kakao/login'].get").exists())
                 .andExpect(jsonPath("$.paths['/login/oauth2/code/kakao'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/access-token'].post").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/auth/refresh'].post.summary").value("로그인 토큰 갱신"))
+                .andExpect(jsonPath("$.paths['/api/v1/auth/refresh'].post.summary").value("토큰 재발급"))
                 .andExpect(jsonPath("$.paths['/api/v1/auth/signup']").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/check-login-id']").doesNotExist());
     }

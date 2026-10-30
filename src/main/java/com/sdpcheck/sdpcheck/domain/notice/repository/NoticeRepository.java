@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -53,6 +54,48 @@ public class NoticeRepository {
                 Long.toString(rs.getLong("author_id")), rs.getString("author_name")), List.of(),
                 seoul(rs.getObject("created_at", OffsetDateTime.class)),
                 seoul(rs.getObject("updated_at", OffsetDateTime.class))));
+    }
+
+    public Optional<NoticeResponse> findActiveForUpdate(UUID noticeId) {
+        return jdbc.query("""
+                SELECT n.*, m.name AS author_name
+                FROM notices n JOIN members m ON m.id = n.author_id
+                WHERE n.id = :id AND n.deleted_at IS NULL
+                FOR UPDATE OF n
+                """, new MapSqlParameterSource("id", noticeId), this::mapNotice)
+                .stream().findFirst();
+    }
+
+    public NoticeResponse update(UUID noticeId, String title, String content, boolean pinned) {
+        var params = new MapSqlParameterSource("id", noticeId)
+                .addValue("title", title).addValue("content", content).addValue("pinned", pinned);
+        return jdbc.queryForObject("""
+                WITH updated AS (
+                    UPDATE notices
+                    SET title = :title, content = :content, is_pinned = :pinned,
+                        updated_at = clock_timestamp()
+                    WHERE id = :id AND deleted_at IS NULL
+                    RETURNING *
+                )
+                SELECT updated.*, m.name AS author_name
+                FROM updated JOIN members m ON m.id = updated.author_id
+                """, params, this::mapNotice);
+    }
+
+    public void softDelete(UUID noticeId) {
+        jdbc.update("""
+                UPDATE notices SET deleted_at = clock_timestamp(), updated_at = clock_timestamp(),
+                                   is_pinned = false
+                WHERE id = :id AND deleted_at IS NULL
+                """, new MapSqlParameterSource("id", noticeId));
+    }
+
+    private NoticeResponse mapNotice(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new NoticeResponse(rs.getObject("id", UUID.class), rs.getString("title"),
+                rs.getString("content"), rs.getBoolean("is_pinned"),
+                new NoticeAuthor(Long.toString(rs.getLong("author_id")), rs.getString("author_name")),
+                List.of(), seoul(rs.getObject("created_at", OffsetDateTime.class)),
+                seoul(rs.getObject("updated_at", OffsetDateTime.class)));
     }
 
     public List<NoticeSummary> list() {

@@ -1,10 +1,12 @@
 package com.sdpcheck.sdpcheck.domain.notice.service;
 
 import com.sdpcheck.sdpcheck.domain.notice.dto.request.CreateNoticeRequest;
+import com.sdpcheck.sdpcheck.domain.notice.dto.request.UpdateNoticeRequest;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeListResponse;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeResponse;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeSummary;
 import com.sdpcheck.sdpcheck.domain.notice.repository.NoticeRepository;
+import com.sdpcheck.sdpcheck.domain.notice.exception.NoticeErrorCode;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.CommonErrorCode;
 import org.springframework.stereotype.Service;
@@ -46,6 +48,34 @@ public class NoticeService {
         var images = imageService.attach(noticeId, imageIds, authorId);
         return new NoticeResponse(created.id(), created.title(), created.content(),
                 created.isPinned(), created.author(), images, created.createdAt(), created.updatedAt());
+    }
+
+    @Transactional
+    public NoticeResponse update(UUID noticeId, UpdateNoticeRequest request, long editorId) {
+        // Acquire the shared pin lock before row/file locks, just as pinned creation does.
+        // This also keeps a concurrent pin change from overwriting an omitted isPinned.
+        repository.lockPinSlot();
+        NoticeResponse current = repository.findActiveForUpdate(noticeId)
+                .orElseThrow(() -> new BusinessException(NoticeErrorCode.RESOURCE_NOT_FOUND));
+        String title = request.title() == null ? current.title() : request.title();
+        String content = request.content() == null ? current.content() : request.content();
+        boolean pinned = request.pinned() == null ? current.isPinned() : request.pinned();
+        if (Boolean.TRUE.equals(request.pinned())) {
+            repository.unpinCurrent();
+        }
+        var images = request.imageIds() == null ? imageService.findAttached(noticeId)
+                : imageService.replace(noticeId, request.imageIds(), editorId);
+        NoticeResponse updated = repository.update(noticeId, title, content, pinned);
+        return new NoticeResponse(updated.id(), updated.title(), updated.content(),
+                updated.isPinned(), updated.author(), images, updated.createdAt(), updated.updatedAt());
+    }
+
+    @Transactional
+    public void delete(UUID noticeId) {
+        repository.lockPinSlot();
+        repository.findActiveForUpdate(noticeId)
+                .orElseThrow(() -> new BusinessException(NoticeErrorCode.RESOURCE_NOT_FOUND));
+        repository.softDelete(noticeId);
     }
 
     @Transactional(readOnly = true)

@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.notice.dto.request.CreateNoticeRequest;
+import com.sdpcheck.sdpcheck.domain.notice.dto.request.UpdateNoticeRequest;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeListResponse;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeResponse;
 import com.sdpcheck.sdpcheck.domain.notice.service.NoticeService;
@@ -17,12 +18,16 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin/notices")
@@ -53,6 +58,41 @@ public class AdminNoticeController {
         requireAdmin(member);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(new ApiResponse<>(true, "NOTICE_LIST_OK", "공지 목록을 조회했습니다.", service.list()));
+    }
+
+    @Operation(operationId = "updateNotice", summary = "관리자 공지 수정",
+            description = "제목·본문·상단 고정 여부·첨부 이미지를 부분 수정합니다. 생략한 필드는 유지하고 imageIds의 빈 배열은 모든 첨부를 제거합니다.")
+    @PatchMapping("/{noticeId}")
+    public ResponseEntity<ApiResponse<NoticeResponse>> update(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedMember member,
+            @PathVariable UUID noticeId,
+            @Valid @RequestBody UpdateNoticeRequest request) {
+        requireMutationAdmin(member);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new ApiResponse<>(true, "NOTICE_UPDATED", "공지가 수정되었습니다.",
+                        service.update(noticeId, request, member.memberId())));
+    }
+
+    @Operation(operationId = "deleteNotice", summary = "관리자 공지 삭제",
+            description = "공지를 논리 삭제하고 고정을 해제합니다. 삭제된 공지와 첨부 이미지는 조회할 수 없습니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "204", description = "공지 삭제 완료", content = @io.swagger.v3.oas.annotations.media.Content))
+    @DeleteMapping("/{noticeId}")
+    public ResponseEntity<Void> delete(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedMember member,
+            @PathVariable UUID noticeId) {
+        requireMutationAdmin(member);
+        service.delete(noticeId);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    private static void requireMutationAdmin(AuthenticatedMember member) {
+        if (member == null) {
+            throw new BusinessException(AuthErrorCode.UNAUTHENTICATED);
+        }
+        if (member.role() != Role.ADMIN) {
+            throw new BusinessException(AuthErrorCode.FORBIDDEN);
+        }
     }
 
     private static void requireAdmin(AuthenticatedMember member) {

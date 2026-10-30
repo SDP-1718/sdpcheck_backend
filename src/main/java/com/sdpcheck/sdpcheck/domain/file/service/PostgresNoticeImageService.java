@@ -20,7 +20,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -85,19 +87,63 @@ public class PostgresNoticeImageService implements NoticeImageService {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public List<NoticeImage> attach(UUID noticeId, List<UUID> imageIds, long ownerId) {
-        List<NoticeImage> images = new ArrayList<>();
-        for (int position = 0; position < imageIds.size(); position++) {
-            UUID fileId = imageIds.get(position);
+        lockAndValidate(imageIds, Set.of(), ownerId);
+        return insertAttachments(noticeId, imageIds);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NoticeImage> findAttached(UUID noticeId) {
+        return jdbc.query("""
+                SELECT ni.file_id FROM notice_images ni
+                JOIN uploaded_files f ON f.id = ni.file_id
+                WHERE ni.notice_id = :id AND f.status = 'ATTACHED'
+                ORDER BY ni.position
+                """, new MapSqlParameterSource("id", noticeId), (rs, rowNum) -> {
+            UUID id = rs.getObject("file_id", UUID.class);
+            return new NoticeImage(id, "/api/v1/files/" + id, null);
+        });
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<NoticeImage> replace(UUID noticeId, List<UUID> imageIds, long ownerId) {
+        Set<UUID> existingIds = new HashSet<>();
+        findAttached(noticeId).forEach(image -> existingIds.add(image.fileId()));
+        lockAndValidate(imageIds, existingIds, ownerId);
+        // Validate every file first. Removal, reordering, and new attachments share the notice transaction.
+        jdbc.update("DELETE FROM notice_images WHERE notice_id = :id",
+                new MapSqlParameterSource("id", noticeId));
+        return insertAttachments(noticeId, imageIds);
+    }
+
+    private void lockAndValidate(List<UUID> imageIds, Set<UUID> existingIds, long ownerId) {
+        if (imageIds.stream().anyMatch(id -> id == null)
+                || imageIds.stream().distinct().count() != imageIds.size()) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR);
+        }
+        // Use one lock order for both creation and replacement, regardless of display order.
+        for (UUID fileId : imageIds.stream().sorted().toList()) {
             FileState state;
             try {
                 state = jdbc.queryForObject("""
-                        SELECT owner_id, status, attach_before
+                        SELECT owner_id, status, attach_before, content_type, size_bytes,
+                               octet_length(data) AS actual_size, substring(data from 1 for 12) AS signature
                         FROM uploaded_files WHERE id = :id FOR UPDATE
                         """, new MapSqlParameterSource("id", fileId), (rs, rowNum) ->
                         new FileState(rs.getLong("owner_id"), rs.getString("status"),
-                                rs.getObject("attach_before", OffsetDateTime.class).toInstant()));
+                                rs.getObject("attach_before", OffsetDateTime.class).toInstant(),
+                                rs.getString("content_type"), rs.getLong("size_bytes"),
+                                rs.getLong("actual_size"), rs.getBytes("signature")));
             } catch (EmptyResultDataAccessException exception) {
                 throw new BusinessException(FileErrorCode.FILE_NOT_FOUND);
+            }
+            if (existingIds.contains(fileId)) {
+                // Another admin may edit the notice without owning its original uploads.
+                if (!"ATTACHED".equals(state.status())) {
+                    throw new BusinessException(FileErrorCode.FILE_NOT_READY);
+                }
+                continue;
             }
             if (state.ownerId() != ownerId) {
                 throw new BusinessException(FileErrorCode.FILE_NOT_FOUND);
@@ -105,6 +151,18 @@ public class PostgresNoticeImageService implements NoticeImageService {
             if (!"PENDING".equals(state.status()) || !state.attachBefore().isAfter(Instant.now())) {
                 throw new BusinessException(FileErrorCode.FILE_NOT_READY);
             }
+            if (state.sizeBytes() < 1 || state.sizeBytes() > MAX_IMAGE_BYTES
+                    || state.sizeBytes() != state.actualSize()
+                    || !imageSignatureMatches(state.signature(), state.contentType())) {
+                throw new BusinessException(FileErrorCode.INVALID_IMAGE);
+            }
+        }
+    }
+
+    private List<NoticeImage> insertAttachments(UUID noticeId, List<UUID> imageIds) {
+        List<NoticeImage> images = new ArrayList<>();
+        for (int position = 0; position < imageIds.size(); position++) {
+            UUID fileId = imageIds.get(position);
             var params = new MapSqlParameterSource()
                     .addValue("fileId", fileId).addValue("noticeId", noticeId)
                     .addValue("position", position);
@@ -150,6 +208,7 @@ public class PostgresNoticeImageService implements NoticeImageService {
         };
     }
 
-    private record FileState(long ownerId, String status, Instant attachBefore) {
+    private record FileState(long ownerId, String status, Instant attachBefore, String contentType,
+                             long sizeBytes, long actualSize, byte[] signature) {
     }
 }

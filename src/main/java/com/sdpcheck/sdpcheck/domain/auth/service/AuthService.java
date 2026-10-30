@@ -10,6 +10,9 @@ import com.sdpcheck.sdpcheck.domain.auth.repository.RefreshTokenRepository;
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
+import com.sdpcheck.sdpcheck.domain.member.repository.SemesterMemberRepository;
+import com.sdpcheck.sdpcheck.domain.attendance.repository.AttendanceQueryRepository;
+import com.sdpcheck.sdpcheck.domain.attendance.exception.AttendanceErrorCode;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.security.jwt.JwtProvider;
 import com.sdpcheck.sdpcheck.domain.auth.client.KakaoClient;
@@ -33,6 +36,8 @@ public class AuthService {
     private final JwtProvider jwtProvider;
     private final RefreshTokenRepository refreshTokenRepository;
     private final KakaoClient kakaoClient;
+    private final AttendanceQueryRepository attendanceQueryRepository;
+    private final SemesterMemberRepository semesterMemberRepository;
 
     @Transactional
     public String kakaoLogin(String authorizationCode){
@@ -110,12 +115,16 @@ public class AuthService {
         }
 
         Role role = resolveRole(request.inviteCode());
+        var semesterId = attendanceQueryRepository.findCurrentSemesterId()
+                .orElseThrow(() -> new BusinessException(AttendanceErrorCode.OPERATING_SEMESTER_NOT_CONFIGURED));
 
         member.completeOnboarding(
                 request.name(),
                 request.generation(),
                 role
         );
+
+        semesterMemberRepository.register(semesterId, memberId);
 
         return OnboardingResponse.of(request.name(), request.generation());
     }

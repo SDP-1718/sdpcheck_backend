@@ -35,7 +35,9 @@ class AuthServiceRefreshTest {
             mock(PasswordEncoder.class),
             jwt,
             tokens,
-            mock(KakaoClient.class)
+            mock(KakaoClient.class),
+            mock(com.sdpcheck.sdpcheck.domain.attendance.repository.AttendanceQueryRepository.class),
+            mock(com.sdpcheck.sdpcheck.domain.member.repository.SemesterMemberRepository.class)
     );
 
     @Test

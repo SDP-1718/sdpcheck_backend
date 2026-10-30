@@ -13,6 +13,10 @@ import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.LoginResult;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResponse;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResult;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.SignupResult;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.SignupResponse;
+import com.sdpcheck.sdpcheck.domain.auth.dto.response.CheckLoginIdResponse;
+import com.sdpcheck.sdpcheck.domain.auth.dto.request.SignupRequest;
 import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
 import com.sdpcheck.sdpcheck.domain.auth.service.AuthService;
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
@@ -48,6 +52,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -60,7 +65,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "jwt.refresh-cookie-secure=true",
         "kakao.client-id=test-client",
         "kakao.redirect-uri=http://localhost:8080/login/oauth2/code/kakao",
-        "auth.frontend-callback-url=http://localhost:5173/auth/callback"
+        "auth.frontend-callback-url=http://localhost:5173/auth/callback",
+        "cors.allowed-origins=https://frontend.example.com,https://admin.example.com/"
 })
 @Import({SecurityConfig.class, JwtProvider.class, SecurityExceptionHandler.class, RefreshTokenCookieProvider.class,
         KakaoConfig.class, KakaoOAuthStateService.class, GlobalExceptionHandler.class, SecurityConfigTest.ProtectedController.class})
@@ -75,6 +81,68 @@ class SecurityConfigTest {
     private AuthService authService;
     @MockitoBean
     private MemberRepository memberRepository;
+
+    @Test
+    void allowedFrontendCanPreflightProtectedApiWithoutToken() throws Exception {
+        mockMvc.perform(options("/test/protected")
+                        .header(HttpHeaders.ORIGIN, "https://frontend.example.com")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://frontend.example.com"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("PATCH")));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void unlistedOriginAndDifferentPortAreRejectedBeforeAuthentication() throws Exception {
+        for (String origin : new String[]{"https://unlisted.example.com", "https://frontend.example.com:444"}) {
+            mockMvc.perform(options("/test/protected")
+                            .header(HttpHeaders.ORIGIN, origin)
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+        }
+        mockMvc.perform(get("/test/protected").header(HttpHeaders.ORIGIN, "https://unlisted.example.com"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void corsPermissionDoesNotBypassAuthentication() throws Exception {
+        mockMvc.perform(get("/test/protected").header(HttpHeaders.ORIGIN, "https://frontend.example.com"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://frontend.example.com"))
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        verifyNoInteractions(authService, memberRepository);
+    }
+
+    @Test
+    void allowedFrontendCanUseRefreshCookieToGetAccessToken() throws Exception {
+        when(authService.issueAccessToken("current-refresh"))
+                .thenReturn(new AccessTokenResponse("access-token", true, "회원", 17));
+        mockMvc.perform(post("/api/v1/auth/access-token")
+                        .header(HttpHeaders.ORIGIN, "https://frontend.example.com")
+                        .cookie(new Cookie("refreshToken", "current-refresh")))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://frontend.example.com"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+        verify(authService).issueAccessToken("current-refresh");
+    }
+
+    @Test
+    void secondConfiguredFrontendCanUseBearerToken() throws Exception {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(
+                new Member("member", "hash", "회원", 17, Role.MEMBER)));
+        mockMvc.perform(get("/test/protected")
+                        .header(HttpHeaders.ORIGIN, "https://admin.example.com")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.createAccessToken(1L)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://admin.example.com"))
+                .andExpect(jsonPath("$.memberId").value(1));
+    }
 
     @Test
     void kakaoCallbackRemainsPublicAndRedirectsWithRefreshCookie() throws Exception {
@@ -368,12 +436,12 @@ class SecurityConfigTest {
     }
 
     @Test
-    void logoutExpiresCookieAndReturnsEmptySuccessResult() throws Exception {
+    void logoutExpiresCookieAndReturnsNoContent() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie("refreshToken", "current-refresh")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isSuccess").value(true))
-                .andExpect(jsonPath("$.code").value("SUCCESS"))
-                .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
+                .andExpect(header().doesNotExist(HttpHeaders.CONTENT_TYPE))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("refreshToken=;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/api/v1/auth")))
@@ -387,8 +455,8 @@ class SecurityConfigTest {
     @Test
     void logoutSucceedsWithoutCookieOrAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
         verify(authService).logout(null);
         verifyNoInteractions(memberRepository);
@@ -400,10 +468,38 @@ class SecurityConfigTest {
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + expired.createAccessToken(1L))
                         .cookie(new Cookie("refreshToken", "expired-refresh")))
-                .andExpect(status().isOk())
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
         verify(authService).logout("expired-refresh");
         verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void signupReturns201WithJsonAndRefreshCookie() throws Exception {
+        when(authService.signUp(any(SignupRequest.class))).thenReturn(SignupResult.of(
+                new SignupResponse(1L, "member", "access-token"), "refresh-token"));
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginId\":\"member\",\"password\":\"password123!\",\"name\":\"회원\",\"generation\":17,\"inviteCode\":\"invite\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("CREATED"))
+                .andExpect(jsonPath("$.result.memberId").value(1))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("refreshToken=refresh-token")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
+    }
+
+    @Test
+    void loginIdCheckReturns200ForBothAvailableAndUsedIds() throws Exception {
+        when(authService.checkLoginId("new-member")).thenReturn(new CheckLoginIdResponse(true));
+        when(authService.checkLoginId("used-member")).thenReturn(new CheckLoginIdResponse(false));
+        mockMvc.perform(get("/api/v1/auth/check-login-id").param("loginId", "new-member"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.result.available").value(true));
+        mockMvc.perform(get("/api/v1/auth/check-login-id").param("loginId", "used-member"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.available").value(false));
     }
 
     @RestController

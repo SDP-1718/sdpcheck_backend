@@ -20,6 +20,10 @@ public record ApiResponse<T>(
 		return success(CommonSuccessCode.CREATED, result);
 	}
 
+	public static <T> ApiResponse<T> of(String code, String message, T result) {
+		return new ApiResponse<>(true, code, message, result);
+	}
+
 	public static ApiResponse<Void> failure(ErrorCode errorCode) {
 		return new ApiResponse<>(false, errorCode.getCode(), errorCode.getMessage(), null);
 	}

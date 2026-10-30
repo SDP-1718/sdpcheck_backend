@@ -26,18 +26,19 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class SecurityExceptionHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
     private final ObjectMapper objectMapper;
-    // Preserve existing API error codes while honoring the mutation contracts.
-    private static final RequestMatcher ADMIN_MUTATION = new OrRequestMatcher(
+    // Preserve existing API error codes while honoring the newer admin API contracts.
+    private static final RequestMatcher ADMIN_CONTRACT = new OrRequestMatcher(
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.PATCH, "/api/v1/admin/schedules/{scheduleId}"),
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.DELETE, "/api/v1/admin/schedules/{scheduleId}"),
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.PATCH, "/api/v1/admin/notices/{noticeId}"),
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.DELETE, "/api/v1/admin/notices/{noticeId}"));
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.DELETE, "/api/v1/admin/notices/{noticeId}"),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/admin/notices/ai-drafts"));
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException exception) throws IOException {
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
-        writeError(response, ADMIN_MUTATION.matches(request) ? AuthErrorCode.UNAUTHENTICATED
+        writeError(response, ADMIN_CONTRACT.matches(request) ? AuthErrorCode.UNAUTHENTICATED
                 : exception instanceof BadCredentialsException
                     ? AuthErrorCode.INVALID_TOKEN : AuthErrorCode.AUTHENTICATION_REQUIRED);
     }
@@ -45,7 +46,7 @@ public class SecurityExceptionHandler implements AuthenticationEntryPoint, Acces
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException exception) throws IOException {
-        writeError(response, ADMIN_MUTATION.matches(request)
+        writeError(response, ADMIN_CONTRACT.matches(request)
                 ? AuthErrorCode.FORBIDDEN : AuthErrorCode.ACCESS_DENIED);
     }
 

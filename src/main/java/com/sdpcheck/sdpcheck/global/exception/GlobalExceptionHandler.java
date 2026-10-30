@@ -16,6 +16,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
+	@ExceptionHandler(RateLimitExceededException.class)
+	public @Nullable ResponseEntity<Object> handleRateLimitExceeded(RateLimitExceededException exception, WebRequest request) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(HttpHeaders.RETRY_AFTER, Integer.toString(exception.retryAfterSeconds()));
+		return errorResponse(exception, exception.getErrorCode(), headers, request);
+	}
+
 	@ExceptionHandler(BusinessException.class)
 	public @Nullable ResponseEntity<Object> handleBusinessException(BusinessException exception, WebRequest request) {
 		return errorResponse(exception, exception.getErrorCode(), new HttpHeaders(), request);

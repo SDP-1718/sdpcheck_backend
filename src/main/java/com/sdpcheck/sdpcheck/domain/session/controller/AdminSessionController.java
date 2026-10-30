@@ -1,17 +1,25 @@
 package com.sdpcheck.sdpcheck.domain.session.controller;
 
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateAttendanceReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionAttendanceResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionDetailResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionQrResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateAttendanceResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.service.SessionCheckInService;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +31,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/sessions")
 public class AdminSessionController {
 
+	private static final String GET_SESSION_CODE = "SESSION2001";
+	private static final String GET_SESSION_MESSAGE = "세션 상세 조회에 성공했습니다.";
+	private static final String GET_NEXT_SESSION_CODE = "SESSION2005";
+	private static final String GET_NEXT_SESSION_MESSAGE = "다음 세션 조회에 성공했습니다.";
+	private static final String GET_SESSION_QR_CODE = "SESSION2006";
+	private static final String GET_SESSION_QR_MESSAGE = "출석 QR 코드가 발급되었습니다.";
+	private static final String GET_LIVE_ATTENDANCE_CODE = "SESSION2008";
+	private static final String GET_LIVE_ATTENDANCE_MESSAGE = "실시간 출석 현황 조회에 성공했습니다.";
+	private static final String UPDATE_ATTENDANCE_CODE = "SESSION2009";
+	private static final String UPDATE_ATTENDANCE_MESSAGE = "출석 상태가 수정되었습니다.";
 	private static final String CREATE_SESSION_CODE = "SESSION2011";
 	private static final String CREATE_SESSION_MESSAGE = "\uC138\uC158\uC774 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
 	private static final String UPDATE_SESSION_CODE = "SESSION2004";
@@ -33,9 +51,54 @@ public class AdminSessionController {
 	private static final String END_SESSION_MESSAGE = "세션이 종료되었습니다.";
 
 	private final SessionService sessionService;
+	private final SessionCheckInService sessionCheckInService;
 
-	public AdminSessionController(SessionService sessionService) {
+	public AdminSessionController(SessionService sessionService, SessionCheckInService sessionCheckInService) {
 		this.sessionService = sessionService;
+		this.sessionCheckInService = sessionCheckInService;
+	}
+
+	@GetMapping("/next")
+	public ResponseEntity<ApiResponse<SessionDetailResDTO>> getNextSession() {
+		SessionDetailResDTO response = sessionService.getNextSession();
+
+		return ResponseEntity.ok(ApiResponse.of(GET_NEXT_SESSION_CODE, GET_NEXT_SESSION_MESSAGE, response));
+	}
+
+	@GetMapping("/{sessionId}")
+	public ResponseEntity<ApiResponse<SessionDetailResDTO>> getSession(@PathVariable UUID sessionId) {
+		SessionDetailResDTO response = sessionService.getSession(sessionId);
+
+		return ResponseEntity.ok(ApiResponse.of(GET_SESSION_CODE, GET_SESSION_MESSAGE, response));
+	}
+
+	@GetMapping("/{sessionId}/qr")
+	public ResponseEntity<ApiResponse<SessionQrResDTO>> getSessionQr(@PathVariable UUID sessionId) {
+		SessionQrResDTO response = sessionCheckInService.issueQr(sessionId);
+
+		return ResponseEntity.ok()
+				.cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(GET_SESSION_QR_CODE, GET_SESSION_QR_MESSAGE, response));
+	}
+
+	@GetMapping("/{sessionId}/check-ins")
+	public ResponseEntity<ApiResponse<SessionAttendanceResDTO>> getLiveAttendance(@PathVariable UUID sessionId) {
+		SessionAttendanceResDTO response = sessionCheckInService.getLiveAttendance(sessionId);
+
+		return ResponseEntity.ok()
+				.cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(GET_LIVE_ATTENDANCE_CODE, GET_LIVE_ATTENDANCE_MESSAGE, response));
+	}
+
+	@PatchMapping("/{sessionId}/attendances/{memberId}")
+	public ResponseEntity<ApiResponse<UpdateAttendanceResDTO>> updateAttendance(
+			@PathVariable UUID sessionId,
+			@PathVariable Long memberId,
+			@RequestBody(required = false) UpdateAttendanceReqDTO request
+	) {
+		UpdateAttendanceResDTO response = sessionCheckInService.updateAttendance(sessionId, memberId, request);
+
+		return ResponseEntity.ok(ApiResponse.of(UPDATE_ATTENDANCE_CODE, UPDATE_ATTENDANCE_MESSAGE, response));
 	}
 
 	@PostMapping

@@ -4,21 +4,33 @@ import com.sdpcheck.sdpcheck.domain.session.dto.request.CreateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateSessionReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CreateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.EndSessionResDTO;
+import com.sdpcheck.sdpcheck.domain.session.dto.response.SessionDetailResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.StartSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.entity.Session;
 import com.sdpcheck.sdpcheck.domain.session.enums.SessionStatus;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
+import com.sdpcheck.sdpcheck.domain.session.repository.SessionAttendanceRepository;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
+import com.sdpcheck.sdpcheck.domain.session.repository.SessionSemesterRepository;
+import com.sdpcheck.sdpcheck.domain.session.repository.SessionSemesterRepository.CurrentSemester;
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +44,48 @@ public class SessionService {
 
 	private static final int TITLE_MAX_LENGTH = 100;
 	private static final int LOCATION_MAX_LENGTH = 200;
+	private static final Map<String, DayOfWeek> REPEAT_DAYS = Map.of(
+			"MON", DayOfWeek.MONDAY,
+			"TUE", DayOfWeek.TUESDAY,
+			"WED", DayOfWeek.WEDNESDAY,
+			"THU", DayOfWeek.THURSDAY,
+			"FRI", DayOfWeek.FRIDAY,
+			"SAT", DayOfWeek.SATURDAY,
+			"SUN", DayOfWeek.SUNDAY
+	);
 
 	private final SessionRepository sessionRepository;
+	private final SessionAttendanceRepository sessionAttendanceRepository;
+	private final SessionSemesterRepository sessionSemesterRepository;
 
-	public SessionService(SessionRepository sessionRepository) {
+	public SessionService(
+			SessionRepository sessionRepository,
+			SessionAttendanceRepository sessionAttendanceRepository,
+			SessionSemesterRepository sessionSemesterRepository
+	) {
 		this.sessionRepository = sessionRepository;
+		this.sessionAttendanceRepository = sessionAttendanceRepository;
+		this.sessionSemesterRepository = sessionSemesterRepository;
+	}
+
+	public SessionDetailResDTO getSession(UUID sessionId) {
+		if (sessionId == null) {
+			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
+		}
+
+		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+
+		return SessionDetailResDTO.from(session);
+	}
+
+	public SessionDetailResDTO getNextSession() {
+		OffsetDateTime now = OffsetDateTime.now();
+		return sessionRepository.findNextSessions(now, now.minus(Session.CHECK_IN_WINDOW), PageRequest.of(0, 1))
+				.stream()
+				.findFirst()
+				.map(SessionDetailResDTO::from)
+				.orElse(null);
 	}
 
 	@Transactional
@@ -45,18 +94,27 @@ public class SessionService {
 
 		LocalDate sessionDate = parseDate(request.sessionDate());
 		LocalTime startTime = parseTime(request.startTime());
-		LocalTime endTime = parseTime(request.endTime());
+		LocalTime endTime = isBlank(request.endTime()) ? null : parseTime(request.endTime());
 		validateTimeRange(startTime, endTime);
 		validateNotPast(sessionDate, startTime);
 
 		String title = request.title().trim();
-		String location = request.location().trim();
 		validateLength(title, TITLE_MAX_LENGTH);
-		validateLength(location, LOCATION_MAX_LENGTH);
+		String location = normalizeLocation(request.location());
 
-		Session session = Session.create(title, sessionDate, startTime, endTime, location);
+		Optional<CurrentSemester> semester = sessionSemesterRepository.findCurrent();
+		List<LocalDate> sessionDates = Boolean.TRUE.equals(request.repeatWeekly())
+				? resolveWeeklyDates(sessionDate, parseRepeatDays(request.repeatDays()), semester
+						.orElseThrow(() -> new SessionException(SessionErrorCode.CURRENT_SEMESTER_NOT_CONFIGURED))
+						.endsOn())
+				: List.of(sessionDate);
+		UUID semesterId = semester.map(CurrentSemester::id).orElse(null);
 
-		return CreateSessionResDTO.from(sessionRepository.save(session));
+		List<Session> sessions = sessionRepository.saveAll(sessionDates.stream()
+				.map(date -> Session.create(title, date, startTime, endTime, location, semesterId))
+				.toList());
+
+		return CreateSessionResDTO.from(sessions.getFirst(), sessions.size());
 	}
 
 	@Transactional
@@ -74,14 +132,10 @@ public class SessionService {
 		LocalDate sessionDate = resolveDate(request.sessionDate(), session.getSessionDate());
 		LocalTime startTime = resolveTime(request.startTime(), session.getStartTime());
 		LocalTime endTime = resolveTime(request.endTime(), session.getEndTime());
-		String location = resolveText(request.location(), session.getLocation());
-		if (endTime == null || location == null) {
-			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
-		}
+		String location = request.location() == null ? session.getLocation() : normalizeLocation(request.location());
 		validateTimeRange(startTime, endTime);
 		validateNotPast(sessionDate, startTime);
 		validateLength(title, TITLE_MAX_LENGTH);
-		validateLength(location, LOCATION_MAX_LENGTH);
 
 		session.update(title, sessionDate, startTime, endTime, location);
 
@@ -112,6 +166,7 @@ public class SessionService {
 
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
+		sessionAttendanceRepository.registerSemesterMembersAsTargets(sessionId);
 
 		return StartSessionResDTO.from(session);
 	}
@@ -127,6 +182,7 @@ public class SessionService {
 
 		validateEndable(session);
 		session.end(OffsetDateTime.now());
+		sessionAttendanceRepository.markRemainingTargetsAbsent(sessionId);
 
 		return EndSessionResDTO.from(session);
 	}
@@ -135,9 +191,7 @@ public class SessionService {
 		if (request == null
 				|| isBlank(request.title())
 				|| isBlank(request.sessionDate())
-				|| isBlank(request.startTime())
-				|| isBlank(request.endTime())
-				|| isBlank(request.location())) {
+				|| isBlank(request.startTime())) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
 		}
 	}
@@ -239,7 +293,7 @@ public class SessionService {
 	}
 
 	private void validateTimeRange(LocalTime startTime, LocalTime endTime) {
-		if (!startTime.isBefore(endTime)) {
+		if (endTime != null && !startTime.isBefore(endTime)) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_TIME_RANGE);
 		}
 	}
@@ -254,6 +308,41 @@ public class SessionService {
 		if (value.length() > maxLength) {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
 		}
+	}
+
+	private String normalizeLocation(String value) {
+		if (isBlank(value)) {
+			return null;
+		}
+		String location = value.trim();
+		validateLength(location, LOCATION_MAX_LENGTH);
+		return location;
+	}
+
+	private Set<DayOfWeek> parseRepeatDays(List<String> values) {
+		if (values == null || values.isEmpty()) {
+			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
+		}
+		Set<DayOfWeek> days = EnumSet.noneOf(DayOfWeek.class);
+		for (String value : values) {
+			DayOfWeek day = value == null ? null : REPEAT_DAYS.get(value);
+			if (day == null) {
+				throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
+			}
+			days.add(day);
+		}
+		return days;
+	}
+
+	// The chosen date is always the first session; later dates follow the selected weekdays.
+	private List<LocalDate> resolveWeeklyDates(LocalDate firstDate, Set<DayOfWeek> days, LocalDate repeatUntil) {
+		List<LocalDate> dates = new ArrayList<>(List.of(firstDate));
+		for (LocalDate date = firstDate.plusDays(1); !date.isAfter(repeatUntil); date = date.plusDays(1)) {
+			if (days.contains(date.getDayOfWeek())) {
+				dates.add(date);
+			}
+		}
+		return dates;
 	}
 
 	private boolean isBlank(String value) {

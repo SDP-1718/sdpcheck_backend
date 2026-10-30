@@ -37,6 +37,9 @@ public class SecurityConfig {
                 paths.matcher("/swagger-ui/**"),
                 paths.matcher("/v3/api-docs"),
                 paths.matcher("/v3/api-docs/**"),
+                paths.matcher(HttpMethod.GET, "/api/v1/auth/kakao/login"),
+                paths.matcher(HttpMethod.GET, "/login/oauth2/code/kakao"),
+                paths.matcher(HttpMethod.POST, "/api/v1/auth/access-token"),
                 paths.matcher(HttpMethod.GET, "/actuator/health"),
                 paths.matcher(HttpMethod.GET, "/actuator/health/**"));
 
@@ -56,7 +59,8 @@ public class SecurityConfig {
                         .requestMatchers(publicEndpoints).permitAll()
                         .requestMatchers(paths.matcher("/api/v1/admin/**")).hasRole("ADMIN")
                         .requestMatchers(paths.matcher(HttpMethod.POST, "/api/v1/files")).hasRole("ADMIN")
-                        .anyRequest().authenticated())
+                        .requestMatchers(paths.matcher(HttpMethod.POST, "/api/v1/auth/onboarding")).authenticated()
+                        .anyRequest().hasAnyRole("MEMBER", "ADMIN"))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, memberRepository,
                                 exceptionHandler, publicEndpoints),
                         UsernamePasswordAuthenticationFilter.class);

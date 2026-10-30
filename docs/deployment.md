@@ -10,6 +10,7 @@
 | `Environment.cmd` | EC2의 카카오·콜백·CORS 허용 주소·쿠키·OpenAI 설정 수정. 비밀 입력은 가림 |
 | `OpenAI.cmd` | OpenAI 활성화·모델·키만 입력해 EC2에 저장. API 호출·앱 실행은 하지 않음 |
 | `Check.cmd` | SSH·Docker·서버 환경파일 사전 점검. 앱 실행·배포는 하지 않음 |
+| `HTTPS.cmd` | sdpcheck.duckdns.org의 DNS 확인 → 별도 Caddy 설치 → HTTPS Swagger 확인 |
 | `Deploy.cmd` | 원격 브랜치 조회 → PC 검사·빌드 → EC2 전송 → 실행 → health·Swagger 확인 |
 
 실행에 필요한 설정은 `deploy.settings.local.json`에 저장하며 Git에서 제외합니다.
@@ -98,6 +99,17 @@ AI 응답이면 기본 출석 요약을 반환하므로 **HTTP 200만으로 실�
 호출할 때마다 생성 요청을 보내는 현재 구현에는 결과 캐시가 없으므로 반복 테스트 횟수를 관리합니다.
 
 ## EC2 실행과 데이터
+
+### DuckDNS HTTPS 설정
+
+EC2 보안 그룹에서 TCP 80·443을 인터넷에 허용하고 DuckDNS의 current ip를 EC2 공인 IP로
+설정한 뒤, 백엔드를 먼저 배포하고 `HTTPS.cmd`를 더블클릭합니다. 기존 PC SSH 설정을
+재사용합니다. Caddy는 서버의 `~/sdpcheck-https`에 별도 Compose 프로젝트로 실행되며
+인증서를 영구 볼륨에 보관하고 자동 갱신합니다. 운영 앱과 DB는 재시작하지 않습니다.
+80·443이 다른 서비스에서 사용 중이거나 기존 폴더가 도구 관리 대상이 아니면 중단합니다.
+HTTPS 확인이 실패하면 포트·DNS·백엔드 상태를 확인한 뒤 다시 실행합니다.
+EC2 공인 IP가 바뀌면 DuckDNS IP도 갱신해야 합니다. 카카오 콘솔 URI 등록과 서버의
+`KAKAO_REDIRECT_URI`, 프론트 콜백·CORS 설정은 별도로 진행합니다.
 
 EC2에서는 PC에서 만든 app.jar를 포함하는 **실행용 이미지**만 빌드합니다.
 Compose 프로젝트 이름은 항상 `sdpcheck`로 고정해 DB 볼륨을 재배포마다 재사용합니다.

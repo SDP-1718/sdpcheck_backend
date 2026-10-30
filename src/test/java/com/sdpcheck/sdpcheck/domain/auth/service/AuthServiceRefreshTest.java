@@ -1,5 +1,6 @@
 package com.sdpcheck.sdpcheck.domain.auth.service;
 
+import com.sdpcheck.sdpcheck.domain.auth.client.KakaoClient;
 import com.sdpcheck.sdpcheck.domain.auth.dto.response.RefreshResult;
 import com.sdpcheck.sdpcheck.domain.auth.entity.RefreshToken;
 import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
@@ -29,7 +30,15 @@ class AuthServiceRefreshTest {
     private final MemberRepository members = mock(MemberRepository.class);
     private final RefreshTokenRepository tokens = mock(RefreshTokenRepository.class);
     private final JwtProvider jwt = new JwtProvider(SECRET, 60_000, 120_000);
-    private final AuthService service = new AuthService(members, mock(PasswordEncoder.class), jwt, tokens);
+    private final AuthService service = new AuthService(
+            members,
+            mock(PasswordEncoder.class),
+            jwt,
+            tokens,
+            mock(KakaoClient.class),
+            mock(com.sdpcheck.sdpcheck.domain.attendance.repository.AttendanceQueryRepository.class),
+            mock(com.sdpcheck.sdpcheck.domain.member.repository.SemesterMemberRepository.class)
+    );
 
     @Test
     void rotatesStoredTokenAndRejectsReuse() {

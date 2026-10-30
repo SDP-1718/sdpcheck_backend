@@ -1,6 +1,8 @@
 package com.sdpcheck.sdpcheck.domain.session.service;
 
 import com.sdpcheck.sdpcheck.domain.attendance.enums.AttendanceStatus;
+import com.sdpcheck.sdpcheck.domain.attendance.exception.CheckInErrorCode;
+import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.CheckInReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.request.UpdateAttendanceReqDTO;
 import com.sdpcheck.sdpcheck.domain.session.dto.response.CheckInResDTO;
@@ -17,13 +19,18 @@ import com.sdpcheck.sdpcheck.domain.session.exception.SessionErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionAttendanceRepository;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
+import com.sdpcheck.sdpcheck.global.exception.BusinessException;
+import com.sdpcheck.sdpcheck.global.exception.CommonErrorCode;
+import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,53 +41,66 @@ public class SessionCheckInService {
 	private final SessionRepository sessionRepository;
 	private final SessionAttendanceRepository sessionAttendanceRepository;
 	private final SessionQrTokenProvider qrTokenProvider;
+	private final Clock clock;
 
+	@Autowired
 	public SessionCheckInService(
 			SessionRepository sessionRepository,
 			SessionAttendanceRepository sessionAttendanceRepository,
 			SessionQrTokenProvider qrTokenProvider
 	) {
+		this(sessionRepository, sessionAttendanceRepository, qrTokenProvider, Clock.systemUTC());
+	}
+
+	SessionCheckInService(SessionRepository sessionRepository,
+			SessionAttendanceRepository sessionAttendanceRepository,
+			SessionQrTokenProvider qrTokenProvider, Clock clock) {
 		this.sessionRepository = sessionRepository;
 		this.sessionAttendanceRepository = sessionAttendanceRepository;
 		this.qrTokenProvider = qrTokenProvider;
+		this.clock = clock;
 	}
 
 	public SessionQrResDTO issueQr(UUID sessionId) {
 		Session session = findInProgressSession(sessionId);
 
-		OffsetDateTime expiresAt = OffsetDateTime.now().plus(SessionQrTokenProvider.TOKEN_TTL);
+		OffsetDateTime expiresAt = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS)
+				.plus(SessionQrTokenProvider.TOKEN_TTL);
 		String token = qrTokenProvider.createToken(session.getId(), expiresAt);
 
 		return new SessionQrResDTO(session.getId(), token, Session.inZone(expiresAt));
 	}
 
 	@Transactional
-	public CheckInResDTO checkIn(long memberId, CheckInReqDTO request) {
-		if (request == null || request.qrToken() == null || request.qrToken().isBlank()) {
-			throw new SessionException(SessionErrorCode.INVALID_QR_TOKEN);
+	public CheckInResDTO checkIn(UUID sessionId, long memberId, CheckInReqDTO request) {
+		if (sessionId == null || request == null || request.qrToken() == null
+				|| request.qrToken().isBlank() || request.qrToken().length() > 4096) {
+			throw new BusinessException(CommonErrorCode.VALIDATION_ERROR);
 		}
 
-		UUID sessionId = qrTokenProvider.getSessionId(request.qrToken())
-				.orElseThrow(() -> new SessionException(SessionErrorCode.INVALID_QR_TOKEN));
-		Session session = findInProgressSession(sessionId);
-
-		if (!sessionAttendanceRepository.isTarget(sessionId, memberId)) {
-			throw new SessionException(SessionErrorCode.NOT_ATTENDANCE_TARGET);
+		Session session = sessionRepository.findByIdForUpdate(sessionId)
+				.filter(found -> found.getDeletedAt() == null)
+				.orElseThrow(() -> new BusinessException(CheckInErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.IN_PROGRESS) {
+			throw new BusinessException(CheckInErrorCode.SESSION_NOT_IN_PROGRESS);
 		}
 
-		OffsetDateTime checkedInAt = OffsetDateTime.now();
+		if (!sessionAttendanceRepository.isTargetForUpdate(sessionId, memberId)) {
+			throw new BusinessException(AuthErrorCode.ACCESS_DENIED);
+		}
+		OffsetDateTime checkedInAt = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MICROS);
+		if (session.getStartedAt().isAfter(checkedInAt)) {
+			throw new BusinessException(CheckInErrorCode.SESSION_NOT_IN_PROGRESS);
+		}
+		qrTokenProvider.validateToken(request.qrToken(), sessionId, checkedInAt.toInstant());
+		if (sessionAttendanceRepository.findAttendanceStatus(sessionId, memberId).isPresent()) {
+			throw new BusinessException(CheckInErrorCode.ALREADY_CHECKED_IN);
+		}
 		AttendanceStatus status = resolveStatus(session, checkedInAt);
+		long checkInId = sessionAttendanceRepository.insertAttendance(sessionId, memberId, status, checkedInAt)
+				.orElseThrow(() -> new BusinessException(CheckInErrorCode.ALREADY_CHECKED_IN));
 
-		if (!sessionAttendanceRepository.insertAttendance(sessionId, memberId, status, checkedInAt)) {
-			boolean markedAbsent = sessionAttendanceRepository.findAttendanceStatus(sessionId, memberId)
-					.filter(existing -> existing == AttendanceStatus.ABSENT)
-					.isPresent();
-			throw new SessionException(markedAbsent
-					? SessionErrorCode.ATTENDANCE_MARKED_ABSENT
-					: SessionErrorCode.ALREADY_CHECKED_IN);
-		}
-
-		return new CheckInResDTO(sessionId, status, Session.inZone(checkedInAt));
+		return new CheckInResDTO(checkInId, sessionId, status, Session.inZone(checkedInAt));
 	}
 
 	public MySessionResDTO getMySession(long memberId) {
@@ -133,9 +153,8 @@ public class SessionCheckInService {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_STARTED);
 		}
 
-		OffsetDateTime checkInClosesAt = session.getCheckInClosesAt();
-		boolean checkInClosed = session.getStatus() != SessionStatus.IN_PROGRESS
-				|| OffsetDateTime.now().isAfter(checkInClosesAt);
+		OffsetDateTime checkInClosesAt = session.getEndedAt();
+		boolean checkInClosed = session.getStatus() != SessionStatus.IN_PROGRESS;
 
 		List<SessionAttendanceResDTO.MemberAttendance> members = sessionAttendanceRepository
 				.findTargetAttendances(sessionId).stream()
@@ -242,12 +261,9 @@ public class SessionCheckInService {
 	}
 
 	private AttendanceStatus resolveStatus(Session session, OffsetDateTime checkedInAt) {
-		if (!checkedInAt.isAfter(session.getPresentDeadline())) {
+		if (!checkedInAt.isAfter(session.getStartedAt().plus(Session.PRESENT_GRACE_PERIOD))) {
 			return AttendanceStatus.PRESENT;
 		}
-		if (!checkedInAt.isAfter(session.getCheckInClosesAt())) {
-			return AttendanceStatus.LATE;
-		}
-		throw new SessionException(SessionErrorCode.CHECK_IN_CLOSED);
+		return AttendanceStatus.LATE;
 	}
 }

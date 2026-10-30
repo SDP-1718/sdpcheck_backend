@@ -26,6 +26,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -40,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class SessionCheckInIntegrationTest {
     private static final String ADMIN_BASE = "/api/v1/admin/sessions";
-    private static final String CHECK_IN = "/api/v1/sessions/check-in";
+    private static final String SESSIONS = "/api/v1/sessions/";
 
     @Container
     @ServiceConnection
@@ -93,79 +94,105 @@ class SessionCheckInIntegrationTest {
     }
 
     @Test
-    void checksInAsPresentBeforeScheduledStartAndRejectsDuplicate() throws Exception {
+    void checksInUsingActualStartTimeAndReturnsGeneratedCheckInId() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
-        UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
+        UUID sessionId = insertSession(now.plusHours(2), now.plusHours(4));
         start(sessionId);
+        jdbc.update("UPDATE study_sessions SET started_at = now() - INTERVAL '4 minutes 55 seconds' WHERE id = ?",
+                sessionId);
         String qr = issueQr(sessionId);
 
-        checkIn(memberToken, qr)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("SESSION2007"))
+        checkIn(sessionId, memberToken, qr)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("CREATED"))
+                .andExpect(jsonPath("$.result.checkInId").isNumber())
                 .andExpect(jsonPath("$.result.sessionId").value(sessionId.toString()))
-                .andExpect(jsonPath("$.result.status").value("PRESENT"));
+                .andExpect(jsonPath("$.result.attendanceStatus").value("PRESENT"))
+                .andExpect(jsonPath("$.result.checkedInAt").value(endsWith("+09:00")));
         assertEquals("PRESENT", jdbc.queryForObject(
                 "SELECT status FROM attendances WHERE session_id = ? AND member_id = ?",
                 String.class, sessionId, memberId));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM attendances WHERE id IS NOT NULL AND session_id = ? AND member_id = ?",
+                Integer.class, sessionId, memberId));
 
-        checkIn(memberToken, issueQr(sessionId))
+        checkIn(sessionId, memberToken, issueQr(sessionId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION4096"));
+                .andExpect(jsonPath("$.code").value("CHECK_IN409_1"));
     }
 
     @Test
-    void checksInAsLateWithinTwentyMinutesAndClosesAfterwards() throws Exception {
+    void treatsMoreThanFiveMinutesAfterActualStartAsLateWithoutTwentyMinuteCutoff() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
-        UUID graceSession = insertSession(now.minusMinutes(3), now.plusMinutes(50));
-        start(graceSession);
-        checkIn(memberToken, issueQr(graceSession))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.status").value("PRESENT"));
-
-        UUID lateSession = insertSession(now.minusMinutes(10), now.plusMinutes(50));
+        UUID lateSession = insertSession(now.plusDays(1), now.plusDays(1).plusHours(2));
         start(lateSession);
-        checkIn(memberToken, issueQr(lateSession))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.status").value("LATE"));
+        jdbc.update("UPDATE study_sessions SET started_at = now() - INTERVAL '21 minutes' WHERE id = ?", lateSession);
 
-        UUID closedSession = insertSession(now.minusMinutes(21), now.plusMinutes(40));
-        start(closedSession);
-        checkIn(memberToken, issueQr(closedSession))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION4097"));
-        assertEquals(0, jdbc.queryForObject(
-                "SELECT count(*) FROM attendances WHERE session_id = ?", Integer.class, closedSession));
+        checkIn(lateSession, memberToken, issueQr(lateSession))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.result.attendanceStatus").value("LATE"));
     }
 
     @Test
-    void rejectsInvalidExpiredOrForeignTokens() throws Exception {
+    void rejectsInvalidExpiredAndSessionMismatchedQrTokensStrictly() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
         UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
         start(sessionId);
 
-        checkIn(memberToken, "not-a-token")
+        checkIn(sessionId, memberToken, "not-a-token")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("SESSION4004"));
-        checkIn(memberToken, qrTokenProvider.createToken(sessionId, now.minusSeconds(30)))
+                .andExpect(jsonPath("$.code").value("CHECK_IN400_1"));
+        checkIn(sessionId, memberToken, jwtProvider.createAccessToken(memberId))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("SESSION4004"));
-        checkIn(memberToken, jwtProvider.createAccessToken(memberId))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("SESSION4004"));
-        mvc.perform(post(CHECK_IN).contentType(MediaType.APPLICATION_JSON).content("{}")
+                .andExpect(jsonPath("$.code").value("CHECK_IN400_1"));
+        mvc.perform(post(checkInPath(sessionId)).contentType(MediaType.APPLICATION_JSON).content("{}")
                         .header(HttpHeaders.AUTHORIZATION, memberToken))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("SESSION4004"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         String qr = issueQr(sessionId);
         mvc.perform(get(ADMIN_BASE + "/next").header(HttpHeaders.AUTHORIZATION, "Bearer " + qr))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(post(CHECK_IN).contentType(MediaType.APPLICATION_JSON).content(body(qr)))
+        mvc.perform(post(checkInPath(sessionId)).contentType(MediaType.APPLICATION_JSON).content(body(qr)))
                 .andExpect(status().isUnauthorized());
 
-        // A QR that expired a few seconds ago is still accepted while the scan is being submitted.
-        checkIn(memberToken, qrTokenProvider.createToken(sessionId, now.minusSeconds(5)))
-                .andExpect(status().isOk());
+        checkIn(sessionId, memberToken, qrTokenProvider.createToken(sessionId, now.minusSeconds(1)))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("CHECK_IN410_1"));
+
+        UUID anotherSessionId = insertSession(now.plusHours(3), now.plusHours(5));
+        start(anotherSessionId);
+        checkIn(anotherSessionId, memberToken, issueQr(sessionId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CHECK_IN400_1"));
+    }
+
+    @Test
+    void rejectsUnauthenticatedUnknownAndNotStartedSessionsWithoutCreatingAttendance() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusHours(1), now.plusHours(3));
+        String token = qrTokenProvider.createToken(sessionId, now.plusMinutes(1));
+
+        mvc.perform(post(checkInPath(sessionId)).contentType(MediaType.APPLICATION_JSON).content(body(token)))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(checkInPath(sessionId)).header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                        .contentType(MediaType.APPLICATION_JSON).content(body(token)))
+                .andExpect(status().isUnauthorized());
+
+        checkIn(sessionId, memberToken, token)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION409_1"));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM attendances WHERE session_id = ?",
+                Integer.class, sessionId));
+
+        UUID missingSessionId = UUID.randomUUID();
+        checkIn(missingSessionId, memberToken, qrTokenProvider.createToken(missingSessionId, now.plusMinutes(1)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION404_1"));
+        mvc.perform(post("/api/v1/sessions/not-a-uuid/check-ins").header(HttpHeaders.AUTHORIZATION, memberToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(body(token)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -187,7 +214,7 @@ class SessionCheckInIntegrationTest {
                 "SELECT semester_id FROM study_sessions WHERE id = ?", UUID.class, sessionId));
 
         start(sessionId);
-        checkIn(memberToken, issueQr(sessionId)).andExpect(status().isOk());
+        checkIn(sessionId, memberToken, issueQr(sessionId)).andExpect(status().isCreated());
         mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
                 .andExpect(status().isOk());
 
@@ -206,18 +233,21 @@ class SessionCheckInIntegrationTest {
         String qr = issueQr(sessionId);
 
         String lateJoiner = bearer(insertMember("MEMBER"));
-        checkIn(lateJoiner, qr)
+        checkIn(sessionId, lateJoiner, qr)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("SESSION4031"));
-        checkIn(adminToken, qr)
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        checkIn(sessionId, adminToken, qr)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("SESSION4031"));
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
 
         mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
                 .andExpect(status().isOk());
-        checkIn(memberToken, qr)
+        checkIn(sessionId, memberToken, qr)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION4092"));
+                .andExpect(jsonPath("$.code").value("SESSION409_1"));
+        assertEquals("ABSENT", jdbc.queryForObject(
+                "SELECT status FROM attendances WHERE session_id = ? AND member_id = ?",
+                String.class, sessionId, memberId));
     }
 
     @Test
@@ -227,7 +257,7 @@ class SessionCheckInIntegrationTest {
         OffsetDateTime now = OffsetDateTime.now();
         UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
         start(sessionId);
-        checkIn(memberToken, issueQr(sessionId)).andExpect(status().isOk());
+        checkIn(sessionId, memberToken, issueQr(sessionId)).andExpect(status().isCreated());
         jdbc.update("""
                 INSERT INTO attendances (session_id, member_id, status, checked_in_at)
                 VALUES (?, ?, 'LATE', now())
@@ -241,7 +271,7 @@ class SessionCheckInIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SESSION2008"))
                 .andExpect(jsonPath("$.result.sessionStatus").value("IN_PROGRESS"))
-                .andExpect(jsonPath("$.result.checkInClosesAt").isString())
+                .andExpect(jsonPath("$.result.checkInClosesAt").value((Object) null))
                 .andExpect(jsonPath("$.result.summary.totalCount").value(total))
                 .andExpect(jsonPath("$.result.summary.checkedInCount").value(2))
                 .andExpect(jsonPath("$.result.summary.presentCount").value(1))
@@ -258,17 +288,19 @@ class SessionCheckInIntegrationTest {
     }
 
     @Test
-    void marksMissingCheckInsAbsentAfterCheckInCloses() throws Exception {
+    void keepsMissingCheckInsPendingUntilSessionEndsThenMarksThemAbsent() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
         UUID sessionId = insertSession(now.minusMinutes(30), now.plusMinutes(30));
         start(sessionId);
+        int targetCount = jdbc.queryForObject(
+                "SELECT count(*) FROM session_attendance_targets WHERE session_id = ?", Integer.class, sessionId);
 
         liveAttendance(sessionId, adminToken)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.summary.presentCount").value(0))
-                .andExpect(jsonPath("$.result.summary.notCheckedInCount").value(0))
+                .andExpect(jsonPath("$.result.summary.notCheckedInCount").value(targetCount))
                 .andExpect(jsonPath("$.result.summary.attendanceRate").value(0.0))
-                .andExpect(memberStatus(memberId, "ABSENT"));
+                .andExpect(memberStatus(memberId, "NOT_CHECKED_IN"));
 
         mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
                 .andExpect(status().isOk());
@@ -277,8 +309,7 @@ class SessionCheckInIntegrationTest {
                 .andExpect(jsonPath("$.result.sessionStatus").value("COMPLETED"))
                 .andExpect(memberStatus(memberId, "ABSENT"));
         assertEquals(
-                jdbc.queryForObject("SELECT count(*) FROM session_attendance_targets WHERE session_id = ?",
-                        Integer.class, sessionId),
+                targetCount,
                 jdbc.queryForObject("""
                         SELECT count(*) FROM attendances
                         WHERE session_id = ? AND status = 'ABSENT' AND checked_in_at IS NULL
@@ -306,7 +337,7 @@ class SessionCheckInIntegrationTest {
         OffsetDateTime now = OffsetDateTime.now();
         UUID sessionId = insertSession(now.plusMinutes(10), now.plusHours(2));
         start(sessionId);
-        checkIn(memberToken, issueQr(sessionId)).andExpect(status().isOk());
+        checkIn(sessionId, memberToken, issueQr(sessionId)).andExpect(status().isCreated());
         OffsetDateTime checkedInAt = jdbc.queryForObject(
                 "SELECT checked_in_at FROM attendances WHERE session_id = ? AND member_id = ?",
                 OffsetDateTime.class, sessionId, memberId);
@@ -330,9 +361,9 @@ class SessionCheckInIntegrationTest {
         liveAttendance(sessionId, adminToken)
                 .andExpect(memberStatus(memberId, "ABSENT"))
                 .andExpect(memberStatus(otherMemberId, "NOT_CHECKED_IN"));
-        checkIn(memberToken, issueQr(sessionId))
+        checkIn(sessionId, memberToken, issueQr(sessionId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION4098"));
+                .andExpect(jsonPath("$.code").value("CHECK_IN409_1"));
 
         mvc.perform(post(ADMIN_BASE + "/" + sessionId + "/end").header(HttpHeaders.AUTHORIZATION, adminToken))
                 .andExpect(status().isOk());
@@ -401,7 +432,7 @@ class SessionCheckInIntegrationTest {
                 .andExpect(jsonPath("$.result.checkedIn").value(false))
                 .andExpect(jsonPath("$.result.attendanceStatus").value((Object) null));
 
-        checkIn(memberToken, issueQr(first)).andExpect(status().isOk());
+        checkIn(first, memberToken, issueQr(first)).andExpect(status().isCreated());
         updateAttendance(first, lateMemberId, adminToken, "{\"status\":\"LATE\"}").andExpect(status().isOk());
         mySession(memberToken)
                 .andExpect(jsonPath("$.result.state").value("IN_PROGRESS"))
@@ -466,9 +497,13 @@ class SessionCheckInIntegrationTest {
         return JsonPath.read(response, "$.result.qrToken");
     }
 
-    private ResultActions checkIn(String bearer, String qrToken) throws Exception {
-        return mvc.perform(post(CHECK_IN).header(HttpHeaders.AUTHORIZATION, bearer)
+    private ResultActions checkIn(UUID sessionId, String bearer, String qrToken) throws Exception {
+        return mvc.perform(post(checkInPath(sessionId)).header(HttpHeaders.AUTHORIZATION, bearer)
                 .contentType(MediaType.APPLICATION_JSON).content(body(qrToken)));
+    }
+
+    private static String checkInPath(UUID sessionId) {
+        return SESSIONS + sessionId + "/check-ins";
     }
 
     private static String body(String qrToken) {

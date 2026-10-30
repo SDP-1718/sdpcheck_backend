@@ -1,14 +1,17 @@
 package com.sdpcheck.sdpcheck.domain.session.service;
 
+import com.sdpcheck.sdpcheck.domain.attendance.exception.CheckInErrorCode;
+import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Date;
-import java.util.Optional;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,9 +21,6 @@ import org.springframework.stereotype.Component;
 public class SessionQrTokenProvider {
 
 	public static final Duration TOKEN_TTL = Duration.ofSeconds(60);
-	// Allows a QR scanned just before expiry to finish submitting.
-	private static final long SUBMIT_GRACE_SECONDS = 10;
-
 	private static final String TOKEN_TYPE_CLAIM = "token_type";
 	private static final String SESSION_QR_TOKEN = "SESSION_QR";
 
@@ -41,21 +41,31 @@ public class SessionQrTokenProvider {
 				.compact();
 	}
 
-	public Optional<UUID> getSessionId(String token) {
+	public void validateToken(String token, UUID sessionId, Instant now) {
 		try {
 			Claims claims = Jwts.parser()
 					.verifyWith(secretKey)
-					.require(TOKEN_TYPE_CLAIM, SESSION_QR_TOKEN)
-					.clockSkewSeconds(SUBMIT_GRACE_SECONDS)
+					.clock(() -> Date.from(now))
 					.build()
 					.parseSignedClaims(token)
 					.getPayload();
-			if (claims.getExpiration() == null) {
-				return Optional.empty();
+			validateClaims(claims, sessionId);
+			if (!claims.getExpiration().toInstant().isAfter(now)) {
+				throw new BusinessException(CheckInErrorCode.QR_TOKEN_EXPIRED);
 			}
-			return Optional.of(UUID.fromString(claims.getSubject()));
+		} catch (ExpiredJwtException exception) {
+			validateClaims(exception.getClaims(), sessionId);
+			throw new BusinessException(CheckInErrorCode.QR_TOKEN_EXPIRED);
 		} catch (JwtException | IllegalArgumentException exception) {
-			return Optional.empty();
+			throw new BusinessException(CheckInErrorCode.INVALID_QR_TOKEN);
+		}
+	}
+
+	private void validateClaims(Claims claims, UUID sessionId) {
+		if (!SESSION_QR_TOKEN.equals(claims.get(TOKEN_TYPE_CLAIM))
+				|| sessionId == null || !sessionId.toString().equals(claims.getSubject())
+				|| claims.getExpiration() == null) {
+			throw new BusinessException(CheckInErrorCode.INVALID_QR_TOKEN);
 		}
 	}
 }

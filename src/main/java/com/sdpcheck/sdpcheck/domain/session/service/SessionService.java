@@ -166,7 +166,7 @@ public class SessionService {
 
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
-		sessionAttendanceRepository.registerAllMembersAsTargets(sessionId);
+		sessionAttendanceRepository.registerSemesterMembersAsTargets(sessionId);
 
 		return StartSessionResDTO.from(session);
 	}

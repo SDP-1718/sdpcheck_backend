@@ -23,6 +23,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.contains;
@@ -56,9 +57,11 @@ class SessionCheckInIntegrationTest {
     private long memberId;
     private String adminToken;
     private String memberToken;
+    private UUID semesterId;
 
     @BeforeEach
     void setUp() {
+        semesterId = insertSemester();
         adminId = insertMember("ADMIN");
         memberId = insertMember("MEMBER");
         adminToken = bearer(adminId);
@@ -90,6 +93,23 @@ class SessionCheckInIntegrationTest {
                 .andExpect(jsonPath("$.result.expiresAt").isString());
         mvc.perform(get(ADMIN_BASE + "/" + sessionId + "/qr").header(HttpHeaders.AUTHORIZATION, memberToken))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void registersOnlySessionSemesterRosterAsTargets() throws Exception {
+        long notOnRoster = insertMemberWithoutRoster();
+        long otherSemesterMember = insertMemberWithoutRoster();
+        registerOnRoster(insertSemester(), otherSemesterMember);
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusHours(1), now.plusHours(3));
+
+        start(sessionId);
+
+        assertEquals(List.of(memberId), jdbc.queryForList(
+                "SELECT member_id FROM session_attendance_targets WHERE session_id = ?", Long.class, sessionId));
+        checkIn(bearer(notOnRoster), issueQr(sessionId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SESSION4031"));
     }
 
     @Test
@@ -175,6 +195,7 @@ class SessionCheckInIntegrationTest {
                 INSERT INTO semesters (id, name, starts_on, ends_on, is_current)
                 VALUES (?, '2026-2', current_date - 30, current_date + 60, true)
                 """, semesterId);
+        registerOnRoster(semesterId, memberId);
         String created = mvc.perform(post(ADMIN_BASE).header(HttpHeaders.AUTHORIZATION, adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -482,13 +503,36 @@ class SessionCheckInIntegrationTest {
     private UUID insertSession(OffsetDateTime startsAt, OffsetDateTime endsAt) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO study_sessions (id, title, starts_at, ends_at, location)
-                VALUES (?, '정기 세션', ?, ?, '세미나실')
-                """, id, startsAt, endsAt);
+                INSERT INTO study_sessions (id, title, starts_at, ends_at, location, semester_id)
+                VALUES (?, '정기 세션', ?, ?, '세미나실', ?)
+                """, id, startsAt, endsAt, semesterId);
         return id;
     }
 
+    private UUID insertSemester() {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO semesters (id, name, starts_on, ends_on, is_current)
+                VALUES (?, '테스트 학기', current_date - 30, current_date + 60, false)
+                """, id);
+        return id;
+    }
+
+    private void registerOnRoster(UUID semester, long id) {
+        jdbc.update("INSERT INTO semester_members (semester_id, member_id) VALUES (?, ?)", semester, id);
+    }
+
     private long insertMember(String role) {
+        long id = insertMemberWithRole(role);
+        registerOnRoster(semesterId, id);
+        return id;
+    }
+
+    private long insertMemberWithoutRoster() {
+        return insertMemberWithRole("MEMBER");
+    }
+
+    private long insertMemberWithRole(String role) {
         return jdbc.queryForObject("""
                 INSERT INTO members (role, login_id, password, name, generation)
                 VALUES (?, ?, 'hash', '테스트', 17)

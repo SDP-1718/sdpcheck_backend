@@ -37,10 +37,18 @@ public class SessionAttendanceRepository {
 		this.jdbc = jdbc;
 	}
 
-	public void registerAllMembersAsTargets(UUID sessionId) {
+	// Sessions created without a semester fall back to the current semester's roster.
+	public void registerSemesterMembersAsTargets(UUID sessionId) {
 		jdbc.update("""
 				INSERT INTO session_attendance_targets (session_id, member_id)
-				SELECT :sessionId, id FROM members WHERE role = 'MEMBER'
+				SELECT s.id, sm.member_id
+				FROM study_sessions s
+				JOIN semester_members sm ON sm.semester_id = COALESCE(
+					s.semester_id,
+					(SELECT id FROM semesters WHERE is_current = true)
+				)
+				JOIN members m ON m.id = sm.member_id
+				WHERE s.id = :sessionId AND m.role = 'MEMBER'
 				ON CONFLICT DO NOTHING
 				""", new MapSqlParameterSource("sessionId", sessionId));
 	}

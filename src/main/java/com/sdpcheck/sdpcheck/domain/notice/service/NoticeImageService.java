@@ -12,6 +12,10 @@ public interface NoticeImageService {
 
     List<NoticeImage> attach(UUID noticeId, List<UUID> imageIds, long ownerId);
 
+    List<NoticeImage> findAttached(UUID noticeId);
+
+    List<NoticeImage> replace(UUID noticeId, List<UUID> imageIds, long ownerId);
+
     ImageContent get(UUID fileId);
 
     record ImageContent(byte[] bytes, String contentType) {

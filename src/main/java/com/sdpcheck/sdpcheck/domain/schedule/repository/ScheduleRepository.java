@@ -1,15 +1,17 @@
 package com.sdpcheck.sdpcheck.domain.schedule.repository;
 
+import com.sdpcheck.sdpcheck.domain.schedule.dto.request.UpdateScheduleRequest;
 import com.sdpcheck.sdpcheck.domain.schedule.dto.response.ScheduleItem;
 import com.sdpcheck.sdpcheck.domain.schedule.dto.response.ScheduleResponse;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
-
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
 
 @Repository
 public class ScheduleRepository {
@@ -37,6 +39,51 @@ public class ScheduleRepository {
                 seoul(rs.getObject("starts_at", OffsetDateTime.class)), rs.getString("location"),
                 seoul(rs.getObject("created_at", OffsetDateTime.class)),
                 seoul(rs.getObject("updated_at", OffsetDateTime.class)), rs.getInt("version")));
+    }
+
+    // Both mutations lock the same active event row until the service transaction commits.
+    public Optional<ScheduleResponse> findActiveForUpdate(UUID id) {
+        return jdbc.query("""
+                SELECT id, title, starts_at, location, created_at, updated_at, version
+                FROM events WHERE id = :id AND deleted_at IS NULL
+                FOR UPDATE
+                """, new MapSqlParameterSource("id", id), eventMapper()).stream().findFirst();
+    }
+
+    public ScheduleResponse update(UUID id, UpdateScheduleRequest request) {
+        var params = new MapSqlParameterSource("id", id)
+                .addValue("version", request.version())
+                .addValue("titlePresent", request.titlePresent()).addValue("title", request.title())
+                .addValue("startsAtPresent", request.startsAtPresent()).addValue("startsAt", request.startsAt())
+                .addValue("locationPresent", request.locationPresent()).addValue("location", request.location());
+        return jdbc.queryForObject("""
+                UPDATE events SET
+                    title = CASE WHEN :titlePresent THEN CAST(:title AS varchar) ELSE title END,
+                    starts_at = CASE WHEN :startsAtPresent THEN CAST(:startsAt AS timestamptz) ELSE starts_at END,
+                    location = CASE WHEN :locationPresent THEN CAST(:location AS varchar) ELSE location END,
+                    updated_at = clock_timestamp(), version = version + 1
+                WHERE id = :id AND version = :version AND deleted_at IS NULL
+                RETURNING id, title, starts_at, location, created_at, updated_at, version
+                """, params, eventMapper());
+    }
+
+    public void delete(UUID id, int version) {
+        int changed = jdbc.update("""
+                UPDATE events SET deleted_at = clock_timestamp(), updated_at = clock_timestamp(),
+                    version = version + 1
+                WHERE id = :id AND version = :version AND deleted_at IS NULL
+                """, new MapSqlParameterSource("id", id).addValue("version", version));
+        if (changed != 1) {
+            throw new IllegalStateException("잠근 일반 일정의 삭제에 실패했습니다.");
+        }
+    }
+
+    private static RowMapper<ScheduleResponse> eventMapper() {
+        return (rs, rowNum) -> new ScheduleResponse(
+                rs.getObject("id", UUID.class), "EVENT", rs.getString("title"),
+                seoul(rs.getObject("starts_at", OffsetDateTime.class)), rs.getString("location"),
+                seoul(rs.getObject("created_at", OffsetDateTime.class)),
+                seoul(rs.getObject("updated_at", OffsetDateTime.class)), rs.getInt("version"));
     }
 
     public long count(OffsetDateTime from, OffsetDateTime to, String type) {

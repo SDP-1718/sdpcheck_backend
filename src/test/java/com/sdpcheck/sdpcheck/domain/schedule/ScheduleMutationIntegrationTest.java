@@ -56,6 +56,21 @@ class ScheduleMutationIntegrationTest {
     }
 
     @Test
+    void swaggerAndKakaoEndpointsRemainAvailableTogether() throws Exception {
+        mvc.perform(get("/swagger-ui/index.html").header("Authorization", "Bearer stale-token"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Swagger UI")));
+        mvc.perform(get("/v3/api-docs").header("Authorization", "Bearer stale-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/kakao/login'].get").exists())
+                .andExpect(jsonPath("$.paths['/login/oauth2/code/kakao'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/access-token'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/refresh'].post.summary").value("로그인 토큰 갱신"))
+                .andExpect(jsonPath("$.paths['/api/v1/auth/signup']").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/check-login-id']").doesNotExist());
+    }
+
+    @Test
     void patchPreservesOmittedFieldsClearsLocationAndConvertsTimezone() {
         var event = create();
         var updated = service.update(event.id(), patch("{\"title\":\"  변경  \",\"version\":1}"));

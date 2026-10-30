@@ -58,6 +58,18 @@ class ScheduleMutationControllerTest {
     }
 
     @Test
+    void pendingKakaoMemberCannotMutateSchedules() throws Exception {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(Member.createKakaoMember(123L)));
+        String token = "Bearer " + jwtProvider.createAccessToken(1L);
+        mvc.perform(patch(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"location\":null,\"version\":1}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mvc.perform(delete(URL).header("Authorization", token).param("version", "1"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
     void ordinaryMemberCannotMutate() throws Exception {
         String token = authenticate(Role.MEMBER);
         mvc.perform(patch(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)

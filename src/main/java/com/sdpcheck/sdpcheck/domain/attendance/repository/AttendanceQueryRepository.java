@@ -52,7 +52,7 @@ public class AttendanceQueryRepository {
                 SELECT count(*) AS total_sessions,
                        count(*) FILTER (WHERE a.status = 'PRESENT') AS present_count,
                        count(*) FILTER (WHERE a.status = 'LATE') AS late_count,
-                       count(*) FILTER (WHERE a.session_id IS NULL) AS absent_count
+                       count(*) FILTER (WHERE a.session_id IS NULL OR a.status = 'ABSENT') AS absent_count
                 %s
                 """.formatted(HISTORY_FROM);
         return jdbc.queryForObject(sql, historyParams(memberId, semesterId),

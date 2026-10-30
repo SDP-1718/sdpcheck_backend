@@ -123,8 +123,7 @@ public class SessionService {
 			throw new SessionException(SessionErrorCode.INVALID_SESSION_INPUT);
 		}
 
-		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
-				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		Session session = findByIdForUpdate(sessionId);
 
 		validateUpdatable(session);
 
@@ -148,8 +147,7 @@ public class SessionService {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
-				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		Session session = findByIdForUpdate(sessionId);
 
 		validateDeletable(session);
 		session.delete(OffsetDateTime.now());
@@ -161,8 +159,7 @@ public class SessionService {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
-				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		Session session = findByIdForUpdate(sessionId);
 
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
@@ -177,14 +174,19 @@ public class SessionService {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
 
-		Session session = sessionRepository.findByIdAndDeletedAtIsNull(sessionId)
-				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
+		Session session = findByIdForUpdate(sessionId);
 
 		validateEndable(session);
 		session.end(OffsetDateTime.now());
 		sessionAttendanceRepository.markRemainingTargetsAbsent(sessionId);
 
 		return EndSessionResDTO.from(session);
+	}
+
+	private Session findByIdForUpdate(UUID sessionId) {
+		return sessionRepository.findByIdForUpdate(sessionId)
+				.filter(session -> session.getDeletedAt() == null)
+				.orElseThrow(() -> new SessionException(SessionErrorCode.SESSION_NOT_FOUND));
 	}
 
 	private void validateRequiredFields(CreateSessionReqDTO request) {

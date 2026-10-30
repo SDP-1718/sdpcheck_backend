@@ -58,6 +58,22 @@ Refresh Token cookie Secure and SameSite follow the existing configuration.
 
 ## Validation
 
+### Onboarding and semester membership
+
+`POST /api/v1/auth/onboarding` keeps the existing request/response format
+(`name`, `generation`, `inviteCode`). On completion, `generation` is stored in
+`members` and the member is also registered in `semester_members` for the
+semester marked `is_current = true`. Both MEMBER and ADMIN invite codes register
+membership. The current semester is selected by the server, not by the submitted
+generation; a member's generation and an operating semester are separate concepts.
+
+Create the operating semester before accepting onboarding. If none is configured,
+the API returns HTTP 503 / `OPERATING_SEMESTER_NOT_CONFIGURED` and the member stays
+incomplete. Profile updates and membership registration share one transaction:
+a membership write failure rolls back onboarding. Existing membership is kept
+without duplication; completed members still receive HTTP 409 on repeat onboarding.
+Existing completed accounts are not backfilled by this change.
+
 Kakao HTTP responses are mocked in `KakaoClientTest`.
 `KakaoAuthIntegrationTest` uses PostgreSQL Testcontainers to check callback,
 member/token persistence, onboarding, returning-member login, and home

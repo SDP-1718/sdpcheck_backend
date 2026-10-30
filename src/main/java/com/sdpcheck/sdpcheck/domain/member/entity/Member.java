@@ -45,6 +45,12 @@ public class Member {
     @Column
     private Integer generation;
 
+    @Column(nullable = false)
+    private boolean sessionStartEnabled = true;
+
+    @Column(nullable = false)
+    private boolean newNoticeEnabled = true;
+
     public Member(
             String loginId,
             String password,
@@ -80,5 +86,13 @@ public class Member {
         this.generation=generation;
         this.role=role;
         this.onboardingCompleted=true;
+    }
+
+    public void updateSessionStartEnabled(boolean sessionStartEnabled) {
+        this.sessionStartEnabled = sessionStartEnabled;
+    }
+
+    public void updateNewNoticeEnabled(boolean newNoticeEnabled) {
+        this.newNoticeEnabled = newNoticeEnabled;
     }
 }

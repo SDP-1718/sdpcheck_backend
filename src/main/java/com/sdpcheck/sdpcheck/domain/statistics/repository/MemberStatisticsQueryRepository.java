@@ -20,12 +20,21 @@ public class MemberStatisticsQueryRepository {
 
     public List<MemberAttendanceStatisticsItem> findMembers(
             UUID semesterId, MemberStatisticsSort sort, int limit, long offset) {
+        var params = parameters(semesterId).addValue("limit", limit).addValue("offset", offset);
+        return query(statisticsSql(sort) + " LIMIT :limit OFFSET :offset", params);
+    }
+
+    public List<MemberAttendanceStatisticsItem> findAllMembers(UUID semesterId, MemberStatisticsSort sort) {
+        return query(statisticsSql(sort), parameters(semesterId));
+    }
+
+    private String statisticsSql(MemberStatisticsSort sort) {
         String orderBy = switch (sort) {
             case ATTENDANCE_RATE_ASC -> "raw_rate ASC NULLS LAST, name ASC, member_id ASC";
             case ATTENDANCE_RATE_DESC -> "raw_rate DESC NULLS LAST, name ASC, member_id ASC";
             case NAME_ASC -> "name ASC, member_id ASC";
         };
-        String sql = """
+        return """
                 WITH eligible_sessions AS (
                     SELECT id
                     FROM study_sessions
@@ -60,11 +69,15 @@ public class MemberStatisticsQueryRepository {
                        END AS is_at_risk
                 FROM member_statistics
                 ORDER BY %s
-                LIMIT :limit OFFSET :offset
                 """.formatted(orderBy);
-        var params = new MapSqlParameterSource("semesterId", semesterId)
-                .addValue("atRiskRate", AT_RISK_ATTENDANCE_RATE)
-                .addValue("limit", limit).addValue("offset", offset);
+    }
+
+    private MapSqlParameterSource parameters(UUID semesterId) {
+        return new MapSqlParameterSource("semesterId", semesterId)
+                .addValue("atRiskRate", AT_RISK_ATTENDANCE_RATE);
+    }
+
+    private List<MemberAttendanceStatisticsItem> query(String sql, MapSqlParameterSource params) {
         return jdbc.query(sql, params, (rs, rowNum) -> new MemberAttendanceStatisticsItem(
                 rs.getLong("member_id"), rs.getString("name"), rs.getInt("generation"),
                 rs.getLong("present_count"), rs.getLong("late_count"), rs.getLong("absent_count"),

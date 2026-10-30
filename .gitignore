@@ -39,3 +39,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Per-PC deployment settings (SSH key path and server address).
+scripts/deploy/deploy.settings.local.json

@@ -5,8 +5,9 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 public record CheckInResDTO(
+		long checkInId,
 		UUID sessionId,
-		AttendanceStatus status,
+		AttendanceStatus attendanceStatus,
 		OffsetDateTime checkedInAt
 ) {
 }

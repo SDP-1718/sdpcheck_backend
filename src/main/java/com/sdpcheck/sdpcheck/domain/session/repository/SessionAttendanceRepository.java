@@ -57,6 +57,18 @@ public class SessionAttendanceRepository {
 		return Boolean.TRUE.equals(exists);
 	}
 
+	public boolean isTargetForUpdate(UUID sessionId, long memberId) {
+		return !jdbc.query("""
+				SELECT member_id
+				FROM session_attendance_targets
+				WHERE session_id = :sessionId AND member_id = :memberId
+				FOR KEY SHARE
+				""", new MapSqlParameterSource()
+				.addValue("sessionId", sessionId)
+				.addValue("memberId", memberId),
+				(rs, rowNum) -> rs.getLong("member_id")).isEmpty();
+	}
+
 	public List<TargetAttendance> findTargetAttendances(UUID sessionId) {
 		return jdbc.query(TARGET_ATTENDANCE_SELECT + """
 				ORDER BY m.generation ASC, m.name ASC, m.id ASC
@@ -108,17 +120,18 @@ public class SessionAttendanceRepository {
 				.stream().findFirst();
 	}
 
-	public boolean insertAttendance(UUID sessionId, long memberId, AttendanceStatus status, OffsetDateTime checkedInAt) {
-		int inserted = jdbc.update("""
+	public Optional<Long> insertAttendance(UUID sessionId, long memberId, AttendanceStatus status, OffsetDateTime checkedInAt) {
+		return jdbc.query("""
 				INSERT INTO attendances (session_id, member_id, status, checked_in_at)
 				VALUES (:sessionId, :memberId, :status, :checkedInAt)
-				ON CONFLICT DO NOTHING
+				ON CONFLICT (session_id, member_id) DO NOTHING
+				RETURNING id
 				""", new MapSqlParameterSource()
 				.addValue("sessionId", sessionId)
 				.addValue("memberId", memberId)
 				.addValue("status", status.name())
-				.addValue("checkedInAt", checkedInAt));
-		return inserted == 1;
+				.addValue("checkedInAt", checkedInAt),
+				(rs, rowNum) -> rs.getLong("id")).stream().findFirst();
 	}
 
 	public record TargetAttendance(

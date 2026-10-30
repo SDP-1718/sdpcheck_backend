@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.sdpcheck.sdpcheck.domain.auth.exception.AuthErrorCode;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -153,6 +154,19 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
+	void addsBearerChallengeForBusinessAuthenticationFailures() throws Exception {
+		assertError(mockMvc.perform(get("/test-api/authentication-failure")), AuthErrorCode.AUTHENTICATION_REQUIRED)
+				.andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+	}
+
+	@Test
+	void addsBearerChallengeForFrameworkUnauthorizedResponses() throws Exception {
+		mockMvc.perform(get("/test-api/framework-error/401"))
+				.andExpect(status().isUnauthorized())
+				.andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+	}
+
+	@Test
 	void hidesUnexpectedExceptionDetails() throws Exception {
 		assertError(mockMvc.perform(get("/test-api/failure")), CommonErrorCode.INTERNAL_ERROR);
 	}
@@ -266,6 +280,11 @@ class GlobalExceptionHandlerTest {
 		@GetMapping("/business")
 		ApiResponse<Void> business() {
 			throw new BusinessException(BusinessExceptionTest.TestErrorCode.EXAMPLE_CONFLICT);
+		}
+
+		@GetMapping("/authentication-failure")
+		ApiResponse<Void> authenticationFailure() {
+			throw new BusinessException(AuthErrorCode.AUTHENTICATION_REQUIRED);
 		}
 
 		@GetMapping("/failure")

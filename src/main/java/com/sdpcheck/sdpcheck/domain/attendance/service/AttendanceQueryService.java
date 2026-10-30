@@ -2,6 +2,7 @@ package com.sdpcheck.sdpcheck.domain.attendance.service;
 
 import com.sdpcheck.sdpcheck.domain.attendance.dto.response.AttendanceHistoryItem;
 import com.sdpcheck.sdpcheck.domain.attendance.dto.response.AttendanceHistoryPageResponse;
+import com.sdpcheck.sdpcheck.domain.attendance.dto.response.AttendanceSummaryResponse;
 import com.sdpcheck.sdpcheck.domain.attendance.exception.AttendanceErrorCode;
 import com.sdpcheck.sdpcheck.domain.attendance.repository.AttendanceQueryRepository;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,5 +37,19 @@ public class AttendanceQueryService {
         List<AttendanceHistoryItem> items = repository.findHistory(memberId, semesterId, page, size);
         return new AttendanceHistoryPageResponse(items, page, size, totalElements, totalPages,
                 (long) page + 1 < totalPages);
+    }
+
+    public AttendanceSummaryResponse getMyAttendanceSummary(long memberId) {
+        var semester = repository.findCurrentSemester()
+                .filter(current -> current.periodCode() != null && !current.periodCode().isBlank())
+                .orElseThrow(() -> new BusinessException(AttendanceErrorCode.OPERATING_SEMESTER_NOT_CONFIGURED));
+        var counts = repository.countAttendance(memberId, semester.id());
+        Integer attendanceRate = counts.totalSessions() == 0 ? null
+                : BigDecimal.valueOf(counts.presentCount() + counts.lateCount())
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(BigDecimal.valueOf(counts.totalSessions()), 0, RoundingMode.HALF_UP)
+                        .intValueExact();
+        return new AttendanceSummaryResponse(semester.periodCode(), attendanceRate, counts.presentCount(),
+                counts.lateCount(), counts.absentCount(), counts.totalSessions());
     }
 }

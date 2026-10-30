@@ -11,6 +11,10 @@ import com.sdpcheck.sdpcheck.domain.auth.service.KakaoOAuthStateService;
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
+import com.sdpcheck.sdpcheck.domain.member.repository.SemesterMemberRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.dao.DataIntegrityViolationException;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.security.jwt.JwtProvider;
 import com.jayway.jsonpath.JsonPath;
@@ -37,6 +41,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +50,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -73,11 +79,21 @@ class KakaoAuthIntegrationTest {
     @Autowired private JwtProvider jwt;
     @Autowired private KakaoOAuthStateService states;
     @MockitoBean private KakaoClient kakao;
+    @Autowired private JdbcTemplate jdbc;
+    @MockitoSpyBean private SemesterMemberRepository semesterMembers;
+    private UUID semesterId;
 
     @BeforeEach
     void clearMembersAndTokens() {
+        jdbc.update("DELETE FROM semester_members");
         tokens.deleteAll();
         members.deleteAll();
+        jdbc.update("DELETE FROM semesters");
+        semesterId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO semesters (id, name, period_code, starts_on, ends_on, is_current)
+                VALUES (?, '운영 학기', '2026-2H', DATE '2026-07-01', DATE '2026-12-31', true)
+                """, semesterId);
     }
 
     @Test
@@ -122,6 +138,9 @@ class KakaoAuthIntegrationTest {
         Member completed = members.findById(member.getId()).orElseThrow();
         assertThat(completed.isOnboardingCompleted()).isTrue();
         assertThat(completed.getRole()).isEqualTo(Role.MEMBER);
+        assertThat(completed.getGeneration()).isEqualTo(17);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM semester_members WHERE semester_id = ? AND member_id = ?",
+                Long.class, semesterId, member.getId())).isEqualTo(1);
         assertThat(members.count()).isEqualTo(1);
         mvc.perform(get("/test/kakao/protected").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
@@ -179,6 +198,58 @@ class KakaoAuthIntegrationTest {
         assertThat(pending.getName()).isNull();
         auth.completeOnboarding(member.getId(), new OnboardingRequest("관리자", 17, "SDPADMIN2026"));
         assertThat(members.findById(member.getId()).orElseThrow().getRole()).isEqualTo(Role.ADMIN);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM semester_members WHERE member_id = ?",
+                Long.class, member.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void missingOperatingSemesterRejectsOnboardingWithoutSavingProfile() throws Exception {
+        jdbc.update("UPDATE semesters SET is_current = false");
+        Member member = members.saveAndFlush(Member.createKakaoMember(7001L));
+        mvc.perform(post("/api/v1/auth/onboarding")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt.createAccessToken(member.getId()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"회원\",\"generation\":17,\"inviteCode\":\"SDP2026\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("OPERATING_SEMESTER_NOT_CONFIGURED"));
+        assertPendingProfile(member.getId());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM semester_members", Long.class)).isZero();
+    }
+
+    @Test
+    void preRegisteredMembershipIsPreservedAndOtherSemestersAreNotAdded() {
+        Member member = members.saveAndFlush(Member.createKakaoMember(7002L));
+        jdbc.update("""
+                INSERT INTO semesters (id, name, starts_on, ends_on, is_current)
+                VALUES (?, '이전 학기', DATE '2026-01-01', DATE '2026-06-30', false)
+                """, UUID.randomUUID());
+        semesterMembers.register(semesterId, member.getId());
+        auth.completeOnboarding(member.getId(), new OnboardingRequest("회원", 18, "SDP2026"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM semester_members WHERE member_id = ?",
+                Long.class, member.getId())).isEqualTo(1);
+        assertThat(members.findById(member.getId()).orElseThrow().getGeneration()).isEqualTo(18);
+        assertThatThrownBy(() -> auth.completeOnboarding(member.getId(), new OnboardingRequest("변경", 19, "SDP2026")))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(AuthErrorCode.ONBOARDING_ALREADY_COMPLETED));
+    }
+
+    @Test
+    void membershipWriteFailureRollsBackMemberOnboarding() {
+        Member member = members.saveAndFlush(Member.createKakaoMember(7003L));
+        doThrow(new DataIntegrityViolationException("test membership failure"))
+                .when(semesterMembers).register(semesterId, member.getId());
+        assertThatThrownBy(() -> auth.completeOnboarding(member.getId(), new OnboardingRequest("회원", 17, "SDP2026")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertPendingProfile(member.getId());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM semester_members", Long.class)).isZero();
+    }
+
+    private void assertPendingProfile(Long memberId) {
+        Member pending = members.findById(memberId).orElseThrow();
+        assertThat(pending.isOnboardingCompleted()).isFalse();
+        assertThat(pending.getName()).isNull();
+        assertThat(pending.getGeneration()).isNull();
+        assertThat(pending.getRole()).isNull();
     }
 
     @Test

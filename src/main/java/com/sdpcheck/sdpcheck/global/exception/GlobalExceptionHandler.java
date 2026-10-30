@@ -57,6 +57,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		HttpHeaders responseHeaders = new HttpHeaders();
 		responseHeaders.putAll(headers);
 		responseHeaders.setContentType(MediaType.APPLICATION_JSON);
+		if (errorCode.getHttpStatus().value() == 401 && responseHeaders.getFirst(HttpHeaders.WWW_AUTHENTICATE) == null) {
+			responseHeaders.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+		}
 
 		return super.handleExceptionInternal(
 				exception,

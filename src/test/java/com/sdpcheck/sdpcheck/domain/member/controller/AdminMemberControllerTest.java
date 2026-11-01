@@ -5,6 +5,7 @@ import com.sdpcheck.sdpcheck.domain.member.dto.response.MemberGenerationsRespons
 import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
+import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberCommandService;
 import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberQueryService;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.GlobalExceptionHandler;
@@ -53,6 +54,7 @@ class AdminMemberControllerTest {
     @Autowired JwtProvider jwtProvider;
     @MockitoBean MemberRepository members;
     @MockitoBean AdminMemberQueryService service;
+    @MockitoBean AdminMemberCommandService commandService;
 
     @Test
     void adminReceivesTheGenerationArrayInTheCommonEnvelopeWithoutCaching() throws Exception {
@@ -95,7 +97,7 @@ class AdminMemberControllerTest {
                 .andExpect(jsonPath("$.isSuccess").value(false))
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
 
-        verifyNoInteractions(service);
+        verifyNoInteractions(service, commandService);
     }
 
     @Test
@@ -106,7 +108,7 @@ class AdminMemberControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
 
-        verifyNoInteractions(service);
+        verifyNoInteractions(service, commandService);
     }
 
     @Test
@@ -116,7 +118,7 @@ class AdminMemberControllerTest {
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
 
-        verifyNoInteractions(members, service);
+        verifyNoInteractions(members, service, commandService);
     }
 
     @Test
@@ -131,7 +133,7 @@ class AdminMemberControllerTest {
                     .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         }
 
-        verifyNoInteractions(members, service);
+        verifyNoInteractions(members, service, commandService);
     }
 
     @Test
@@ -157,7 +159,7 @@ class AdminMemberControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
 
-        verifyNoInteractions(service);
+        verifyNoInteractions(service, commandService);
     }
 
     @Test
@@ -178,7 +180,7 @@ class AdminMemberControllerTest {
 
     @Test
     void directControllerCallsAlsoRejectMissingAndNonAdminPrincipals() {
-        var controller = new AdminMemberController(service);
+        var controller = new AdminMemberController(service, commandService);
         var missing = assertThrows(BusinessException.class, () -> controller.getMemberGenerations(null));
         assertEquals(AuthErrorCode.AUTHENTICATION_REQUIRED, missing.getErrorCode());
 
@@ -188,7 +190,7 @@ class AdminMemberControllerTest {
             var denied = assertThrows(BusinessException.class, () -> controller.getMemberGenerations(principal));
             assertEquals(AuthErrorCode.ACCESS_DENIED, denied.getErrorCode());
         }
-        verifyNoInteractions(service);
+        verifyNoInteractions(service, commandService);
     }
 
     private void authenticate(Role role) {

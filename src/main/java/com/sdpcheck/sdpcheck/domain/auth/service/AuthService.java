@@ -106,7 +106,7 @@ public class AuthService {
             Long memberId,
             OnboardingRequest request
     ) {
-        Member member = memberRepository.findById(memberId)
+        Member member = memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(()-> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
 
         if(member.isOnboardingCompleted()){

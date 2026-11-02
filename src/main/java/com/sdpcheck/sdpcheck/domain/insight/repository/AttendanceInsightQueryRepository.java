@@ -48,7 +48,7 @@ public class AttendanceInsightQueryRepository {
                         WHERE a.status = 'LATE'
                     ) AS late_count,
                     COUNT(*) FILTER (
-                        WHERE a.status IS NULL
+                        WHERE a.status IS NULL OR a.status = 'ABSENT'
                     ) AS absent_count
                 """ + ATTENDANCE_FROM;
 

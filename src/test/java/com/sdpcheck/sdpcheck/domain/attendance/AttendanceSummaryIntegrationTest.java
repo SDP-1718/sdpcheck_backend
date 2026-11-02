@@ -297,6 +297,17 @@ class AttendanceSummaryIntegrationTest {
         assertEquals(AttendanceErrorCode.OPERATING_SEMESTER_NOT_CONFIGURED, exception.getErrorCode());
     }
 
+    @Test
+    void explicitlyStoredAbsenceIsCountedInSummaryAndInsight() {
+        session(uuid(91), semesterId, STARTS_AT, true);
+        target(uuid(91), memberId);
+        checkIn(uuid(91), memberId, "ABSENT", null);
+        assertEquals(1L, service.getMyAttendanceSummary(memberId).absentCount());
+        var insight = new com.sdpcheck.sdpcheck.domain.insight.repository.AttendanceInsightQueryRepository(
+                new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc));
+        assertEquals(1L, insight.findSummary(memberId).absentCount());
+    }
+
     private void assertEmpty(AttendanceSummaryResponse summary) {
         assertEquals(0L, summary.totalSessionCount());
         assertEquals("2026-2H", summary.periodCode());

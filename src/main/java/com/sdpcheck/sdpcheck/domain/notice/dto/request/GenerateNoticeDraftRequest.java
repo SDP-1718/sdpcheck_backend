@@ -7,12 +7,14 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import tools.jackson.databind.JsonNode;
 
-@Schema(description = "고정 목업 초안 생성 요청. 메모는 검증하며 응답 내용에는 영향을 주지 않습니다.",
+@Schema(description = "AI 공지 초안 생성 요청. 메모를 바탕으로 제목과 본문을 작성합니다.",
         requiredProperties = {"memo"}, additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public class GenerateNoticeDraftRequest {
     @NotBlank
     @Size(max = 2000)
     private String memo;
+
+    public String memo() { return memo; }
 
     @JsonSetter("memo")
     @Schema(implementation = String.class, minLength = 1, maxLength = 2000,

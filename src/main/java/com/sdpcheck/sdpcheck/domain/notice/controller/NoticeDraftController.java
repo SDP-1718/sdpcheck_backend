@@ -37,9 +37,9 @@ public class NoticeDraftController {
     }
 
     @Operation(operationId = "generateNoticeDraft", summary = "관리자 공지 초안 생성 (목업)",
-            description = "메모를 검증한 뒤 고정 제목·본문과 MOCK 모드를 반환합니다. 초안을 저장·게시하지 않으며 사용자별 최근 60초간 최대 10회 호출할 수 있습니다.")
+            description = "메모를 바탕으로 OpenAI가 제목·본문을 생성하고 AI 모드를 반환합니다. 초안을 저장·게시하지 않으며 사용자별 최근 60초간 최대 10회 호출할 수 있습니다.")
     @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "고정 목업 초안 생성", useReturnTypeSchema = true,
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "AI 공지 초안 생성", useReturnTypeSchema = true,
                     headers = @Header(name = "Cache-Control", schema = @Schema(type = "string", example = "no-store"))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "메모 누락·공백·길이 초과·잘못된 형식",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class), examples = @ExampleObject(
@@ -69,7 +69,7 @@ public class NoticeDraftController {
         requireAdmin(member);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(new ApiResponse<>(true, "NOTICE_DRAFT_CREATED", "공지 초안이 생성되었습니다.",
-                        service.generate(member.memberId())));
+                        service.generate(member.memberId(), request.memo())));
     }
 
     private static void requireAdmin(AuthenticatedMember member) {

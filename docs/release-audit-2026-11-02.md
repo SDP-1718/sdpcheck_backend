@@ -20,7 +20,7 @@ summary and AI insight (session end already writes these records).
 | Sessions | create/update/delete/next/detail/start/end/QR/live attendance/manual attendance; current session and check-in (#33/#57/#47) |
 | Images | POST /api/v1/files multipart upload and GET /api/v1/files/{fileId}; replaces image screenshot's obsolete presigned-url path, documented in notice-image-storage.md |
 
-AI notice drafts remain the approved MOCK implementation; attendance insight uses OpenAI.
+AI notice drafts and attendance insight now both use OpenAI. See notice-ai-drafts.md.
 PR #20 was superseded by #33, #1 is the closed Discord test. Older Docker PR #5
 is superseded by #6/#9. Feature PRs merged into other feature branches were integrated
 through #23/#25/#53/#55; no unrelated old branch is blindly merged.

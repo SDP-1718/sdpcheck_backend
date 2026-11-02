@@ -1,0 +1,12 @@
+# Override the source-build Dockerfile: the JAR is built on the Windows PC.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt
+    image: sdpcheck-backend:${DEPLOY_COMMIT:?Deployment commit is required}
+    mem_limit: 512m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=48m -Xss512k
+  postgres:
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]

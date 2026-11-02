@@ -1,0 +1,13 @@
+{
+  "ServerAddress": "",
+  "SshUser": "ubuntu",
+  "KeyPath": "",
+  "TrustedHostAlias": "",
+  "DeployBranch": "main",
+  "JavaHome": "",
+  "RunChecks": true,
+  "RequireLoginUrls": false,
+  "Region": "ap-northeast-2",
+  "InstanceId": "",
+  "AwsProfile": ""
+}

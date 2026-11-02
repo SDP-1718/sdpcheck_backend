@@ -1,0 +1,3 @@
+ALTER TABLE members
+    ADD COLUMN session_start_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN new_notice_enabled BOOLEAN NOT NULL DEFAULT TRUE;

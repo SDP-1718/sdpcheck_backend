@@ -2,6 +2,7 @@ HELP.md
 .env
 .env.*
 !.env.example
+!.env.prod.example
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
@@ -38,3 +39,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Per-PC deployment settings (SSH key path and server address).
+scripts/deploy/deploy.settings.local.json

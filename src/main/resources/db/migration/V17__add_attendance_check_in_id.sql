@@ -1,0 +1,3 @@
+ALTER TABLE attendances
+    ADD COLUMN id BIGINT GENERATED ALWAYS AS IDENTITY,
+    ADD CONSTRAINT ux_attendances_id UNIQUE (id);

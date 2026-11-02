@@ -108,9 +108,9 @@ class SessionCheckInIntegrationTest {
 
         assertEquals(List.of(memberId), jdbc.queryForList(
                 "SELECT member_id FROM session_attendance_targets WHERE session_id = ?", Long.class, sessionId));
-        checkIn(bearer(notOnRoster), issueQr(sessionId))
+        checkIn(sessionId, bearer(notOnRoster), issueQr(sessionId))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("SESSION4031"));
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     }
 
     @Test

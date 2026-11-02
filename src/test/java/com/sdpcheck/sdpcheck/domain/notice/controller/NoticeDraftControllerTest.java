@@ -44,8 +44,8 @@ class NoticeDraftControllerTest {
     @Test
     void successHasExpectedEnvelopeAndNoStoreHeader() throws Exception {
         String token = authenticate(new Member("admin", "hash", "관리자", 17, Role.ADMIN));
-        when(service.generate(1L)).thenReturn(new NoticeDraftResponse("정기 세션 안내",
-                "10월 2일 금요일 오후 7시에 정기 세션이 진행됩니다.", NoticeDraftMode.MOCK));
+        when(service.generate(1L, "공지용 메모")).thenReturn(new NoticeDraftResponse("정기 세션 안내",
+                "10월 2일 금요일 오후 7시에 정기 세션이 진행됩니다.", NoticeDraftMode.AI));
         mvc.perform(post(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"memo\":\"  공지용 메모  \"}"))
                 .andExpect(status().isOk())
@@ -55,8 +55,8 @@ class NoticeDraftControllerTest {
                 .andExpect(jsonPath("$.message").value("공지 초안이 생성되었습니다."))
                 .andExpect(jsonPath("$.result.title").value("정기 세션 안내"))
                 .andExpect(jsonPath("$.result.content").value("10월 2일 금요일 오후 7시에 정기 세션이 진행됩니다."))
-                .andExpect(jsonPath("$.result.mode").value("MOCK"));
-        verify(service).generate(1L);
+                .andExpect(jsonPath("$.result.mode").value("AI"));
+        verify(service).generate(1L, "공지용 메모");
     }
 
     @Test
@@ -80,7 +80,7 @@ class NoticeDraftControllerTest {
                             .content("{\"memo\":\"" + memo + "\"}"))
                     .andExpect(status().isOk());
         }
-        verify(service, times(2)).generate(1L);
+        verify(service, times(2)).generate(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -111,7 +111,7 @@ class NoticeDraftControllerTest {
     @Test
     void rateLimitHasRetryAfterAndFailureEnvelope() throws Exception {
         String token = authenticate(new Member("admin", "hash", "관리자", 17, Role.ADMIN));
-        when(service.generate(1L)).thenThrow(new RateLimitExceededException(17));
+        when(service.generate(1L, "메모")).thenThrow(new RateLimitExceededException(17));
         mvc.perform(post(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"memo\":\"메모\"}"))
                 .andExpect(status().isTooManyRequests())
@@ -124,7 +124,7 @@ class NoticeDraftControllerTest {
     @Test
     void disabledFeatureReturns503() throws Exception {
         String token = authenticate(new Member("admin", "hash", "관리자", 17, Role.ADMIN));
-        when(service.generate(1L)).thenThrow(new BusinessException(CommonErrorCode.FEATURE_UNAVAILABLE));
+        when(service.generate(1L, "메모")).thenThrow(new BusinessException(CommonErrorCode.FEATURE_UNAVAILABLE));
         mvc.perform(post(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"memo\":\"메모\"}"))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("FEATURE_UNAVAILABLE"));
@@ -133,7 +133,7 @@ class NoticeDraftControllerTest {
     @Test
     void unexpectedErrorsUseCommon500EnvelopeWithoutLeakingDetails() throws Exception {
         String token = authenticate(new Member("admin", "hash", "관리자", 17, Role.ADMIN));
-        when(service.generate(1L)).thenThrow(new IllegalStateException("internal test detail"));
+        when(service.generate(1L, "메모")).thenThrow(new IllegalStateException("internal test detail"));
         mvc.perform(post(URL).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"memo\":\"메모\"}"))
                 .andExpect(status().isInternalServerError())

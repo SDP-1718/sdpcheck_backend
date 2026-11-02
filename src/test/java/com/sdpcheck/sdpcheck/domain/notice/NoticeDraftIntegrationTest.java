@@ -43,6 +43,8 @@ class NoticeDraftIntegrationTest {
     private static final String URL = "/api/v1/admin/notices/ai-drafts";
     @Container @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"));
+    @org.springframework.test.context.bean.override.mockito.MockitoBean com.sdpcheck.sdpcheck.domain.notice.service.OpenAiNoticeDraftClient ai;
+    @org.junit.jupiter.api.BeforeEach void mockAi() { org.mockito.Mockito.when(ai.available()).thenReturn(true); org.mockito.Mockito.when(ai.generate(org.mockito.ArgumentMatchers.anyString())).thenReturn(new com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeDraftResponse("정기 세션 안내", "10월 2일 금요일 오후 7시에 정기 세션이 진행됩니다.", com.sdpcheck.sdpcheck.domain.notice.enums.NoticeDraftMode.AI)); }
     @Autowired NoticeDraftService service;
     @Autowired NoticeDraftRateLimiter limiter;
     @Autowired JdbcTemplate jdbc;
@@ -61,7 +63,7 @@ class NoticeDraftIntegrationTest {
                     .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                     .andExpect(jsonPath("$.result.title").value("정기 세션 안내"))
                     .andExpect(jsonPath("$.result.content").value("10월 2일 금요일 오후 7시에 정기 세션이 진행됩니다."))
-                    .andExpect(jsonPath("$.result.mode").value("MOCK"));
+                    .andExpect(jsonPath("$.result.mode").value("AI"));
         }
         assertEquals(before, jdbc.queryForObject("SELECT count(*) FROM notices", Long.class));
         assertEquals(2, quotaRows(member));
@@ -70,7 +72,7 @@ class NoticeDraftIntegrationTest {
     @Test
     void eleventhRequestReturns429AndAnotherAdminHasIndependentQuota() throws Exception {
         long member = admin();
-        for (int i = 0; i < 10; i++) { service.generate(member); }
+        for (int i = 0; i < 10; i++) { service.generate(member, "메모"); }
         var response = mvc.perform(post(URL).header("Authorization", token(member)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"memo\":\"메모\"}"))
                 .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"))
@@ -80,7 +82,7 @@ class NoticeDraftIntegrationTest {
         assertTrue(retryAfter >= 1 && retryAfter <= 60);
         assertEquals(10, quotaRows(member));
         long anotherAdmin = admin();
-        assertNotNull(service.generate(anotherAdmin));
+        assertNotNull(service.generate(anotherAdmin, "메모"));
         assertEquals(1, quotaRows(anotherAdmin));
     }
 
@@ -118,7 +120,7 @@ class NoticeDraftIntegrationTest {
                     ready.countDown();
                     if (!start.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("start timeout"); }
                     try {
-                        service.generate(member);
+                        service.generate(member, "메모");
                         return "OK";
                     } catch (RateLimitExceededException exception) {
                         return exception.getErrorCode().getCode();
@@ -145,13 +147,13 @@ class NoticeDraftIntegrationTest {
                     .andExpect(status().isBadRequest());
         }
         assertEquals(0, quotaRows(member));
-        assertNotNull(service.generate(member));
+        assertNotNull(service.generate(member, "메모"));
     }
 
     @Test
     void deletingMemberAlsoDeletesQuotaMetadata() {
         long member = admin();
-        service.generate(member);
+        service.generate(member, "메모");
         jdbc.update("DELETE FROM members WHERE id = ?", member);
         assertEquals(0, quotaRows(member));
     }
@@ -170,7 +172,7 @@ class NoticeDraftIntegrationTest {
                 .andExpect(jsonPath("$.components.schemas.GenerateNoticeDraftRequest.properties.memo.type").value("string"))
                 .andExpect(jsonPath("$.components.schemas.GenerateNoticeDraftRequest.properties.memo.maxLength").value(2000))
                 .andExpect(jsonPath("$.components.schemas.GenerateNoticeDraftRequest.additionalProperties").value(false))
-                .andExpect(jsonPath("$.components.schemas.NoticeDraftResponse.properties.mode.enum[0]").value("MOCK"));
+                .andExpect(jsonPath("$.components.schemas.NoticeDraftResponse.properties.mode.enum[0]").value("AI"));
         mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("Swagger UI")));
     }

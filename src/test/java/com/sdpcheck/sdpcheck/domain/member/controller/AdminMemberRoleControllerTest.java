@@ -8,6 +8,7 @@ import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.exception.MemberErrorCode;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
 import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberCommandService;
+import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberListQueryService;
 import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberQueryService;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.GlobalExceptionHandler;
@@ -56,6 +57,7 @@ class AdminMemberRoleControllerTest {
     @MockitoBean MemberRepository members;
     @MockitoBean AdminMemberQueryService queryService;
     @MockitoBean AdminMemberCommandService commandService;
+    @MockitoBean AdminMemberListQueryService listQueryService;
 
     @Test
     void adminUpdatesAnotherMembersRoleInTheCommonEnvelopeWithoutCaching() throws Exception {
@@ -225,7 +227,7 @@ class AdminMemberRoleControllerTest {
 
     @Test
     void directControllerCallsRejectMissingAndNonAdminPrincipals() {
-        var controller = new AdminMemberController(queryService, commandService);
+        var controller = new AdminMemberController(queryService, commandService, listQueryService);
         var request = new MemberRoleUpdateRequest(Role.ADMIN);
 
         var missing = assertThrows(BusinessException.class,

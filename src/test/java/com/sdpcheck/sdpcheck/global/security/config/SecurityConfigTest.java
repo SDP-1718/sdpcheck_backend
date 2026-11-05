@@ -360,7 +360,7 @@ class SecurityConfigTest {
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("SameSite=Lax")))
-                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/api/v1/auth")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=120")))
                 .andExpect(jsonPath("$.result.accessToken").value("access-token"))
                 .andExpect(jsonPath("$.result.refreshToken").doesNotExist());
@@ -406,7 +406,7 @@ class SecurityConfigTest {
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("SameSite=Lax")))
-                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/api/v1/auth")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=120")));
         verify(authService).refresh("old-refresh");
         verifyNoInteractions(memberRepository);
@@ -444,7 +444,7 @@ class SecurityConfigTest {
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("refreshToken=;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")))
-                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/api/v1/auth")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Path=/;")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("SameSite=Lax")));

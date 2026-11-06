@@ -14,10 +14,12 @@ import com.sdpcheck.sdpcheck.domain.session.dto.response.UpdateSessionResDTO;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionCheckInService;
 import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
 import com.sdpcheck.sdpcheck.global.response.ApiResponse;
+import com.sdpcheck.sdpcheck.global.security.jwt.AuthenticatedMember;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -127,8 +129,10 @@ public class AdminSessionController {
 	}
 
 	@PostMapping("/{sessionId}/start")
-	public ResponseEntity<ApiResponse<StartSessionResDTO>> startSession(@PathVariable UUID sessionId) {
-		StartSessionResDTO response = sessionService.startSession(sessionId);
+	public ResponseEntity<ApiResponse<StartSessionResDTO>> startSession(
+			@PathVariable UUID sessionId,
+			@AuthenticationPrincipal AuthenticatedMember member) {
+		StartSessionResDTO response = sessionService.startSession(sessionId, member.memberId());
 
 		return ResponseEntity.ok(ApiResponse.of(START_SESSION_CODE, START_SESSION_MESSAGE, response));
 	}

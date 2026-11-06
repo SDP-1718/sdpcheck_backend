@@ -89,6 +89,13 @@ class DeploymentTests(unittest.TestCase):
         self.deployment.cleanup.assert_called_once_with({OLD, NEW})
         self.assertFalse((self.release / 'image.tar.gz').exists())
 
+    def test_environment_forwarding_check_receives_release_commit(self):
+        self.deployment.deploy(NEW)
+        helper_calls = [call for call in self.deployment.run.call_args_list
+                        if call.args[0][2] == 'compose']
+        self.assertEqual(len(helper_calls), 1)
+        self.assertEqual(helper_calls[0].kwargs['env']['DEPLOY_COMMIT'], NEW)
+
     def test_unhealthy_app_rolls_back_without_changing_current_marker(self):
         self.deployment.healthy.side_effect = [False, True]
         with self.assertRaisesRegex(RuntimeError, 'previous application is healthy'):

@@ -21,4 +21,75 @@ jobs:
           java-version: "21"
           cache: gradle
       - name: Run checks
-        run: ./gradlew check --no-daemon
+        run: ./gradlew check bootJar --no-daemon
+      - name: Test deployment agent
+        run: python3 -m unittest discover -s scripts/deploy/tests -v
+      - name: Keep tested application for release build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-${{ github.sha }}
+          path: build/libs/app.jar
+          retention-days: 1
+
+  production-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    concurrency:
+      group: production-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: application-${{ github.sha }}
+          path: image-context
+      - name: Build image and deployment bundle
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release runtime
+          cp scripts/deploy/Dockerfile.prebuilt image-context/Dockerfile
+          docker build --label "org.opencontainers.image.revision=$COMMIT" \
+            -t "sdpcheck-backend:$COMMIT" image-context
+          docker save "sdpcheck-backend:$COMMIT" | gzip -1 > release/image.tar.gz
+          cp compose.prod.yaml scripts/deploy/compose.prebuilt.yaml \
+            scripts/deploy/environment.py scripts/deploy/auto-deploy.py runtime/
+          tar -czf release/runtime.tar.gz -C runtime \
+            compose.prod.yaml compose.prebuilt.yaml environment.py auto-deploy.py
+          (cd release && sha256sum image.tar.gz runtime.tar.gz > checksums.sha256)
+      - name: Publish complete deployment release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Stale builds must not publish a candidate after main has advanced.
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          if [ "$head" != "$COMMIT" ]; then
+            echo 'Newer main commit exists; skipping this release.'
+            exit 0
+          fi
+          tag="production-$COMMIT"
+          if gh release view "$tag" --json isDraft --jq .isDraft > existing-draft.txt 2>/dev/null; then
+            if grep -qx false existing-draft.txt; then
+              echo 'Immutable deployment already published.'
+              exit 0
+            fi
+          else
+            gh release create "$tag" --target "$COMMIT" --draft --prerelease \
+              --title "Production $COMMIT" \
+              --notes 'Tested production image. EC2 automatically checks this release; server health is recorded in its deployment journal.'
+          fi
+          gh release upload "$tag" release/image.tar.gz release/runtime.tar.gz \
+            release/checksums.sha256 --clobber
+          gh release edit "$tag" --draft=false --prerelease --latest=false
+          echo "Release published. EC2 checks within 2 minutes; this job does not certify server health." >> "$GITHUB_STEP_SUMMARY"

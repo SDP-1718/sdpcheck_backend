@@ -169,7 +169,8 @@ class Deployment:
         self.run(['python3', str(release / 'environment.py'), 'status', '1'])
         self.compose(commit, 'config', '--quiet')
         self.run(['python3', str(release / 'environment.py'), 'compose',
-                  str(release / 'compose.prod.yaml'), str(release / 'compose.prebuilt.yaml')])
+                  str(release / 'compose.prod.yaml'), str(release / 'compose.prebuilt.yaml')],
+                 env=dict(os.environ, DEPLOY_COMMIT=commit))
         state = self.docker('inspect', '--format={{.State.Health.Status}}', 'sdpcheck-postgres').strip()
         if state != b'healthy':
             raise RuntimeError('PostgreSQL is not healthy')

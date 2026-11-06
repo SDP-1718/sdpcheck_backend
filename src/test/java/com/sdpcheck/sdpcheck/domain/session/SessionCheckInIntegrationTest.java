@@ -97,6 +97,23 @@ class SessionCheckInIntegrationTest {
     }
 
     @Test
+    void registersOtherAdminsAsTargetsButExcludesSessionStarter() throws Exception {
+        long otherAdminId = insertMember("ADMIN");
+        OffsetDateTime now = OffsetDateTime.now();
+        UUID sessionId = insertSession(now.plusHours(1), now.plusHours(3));
+
+        start(sessionId);
+
+        assertEquals(List.of(memberId, otherAdminId).stream().sorted().toList(), jdbc.queryForList(
+                "SELECT member_id FROM session_attendance_targets WHERE session_id = ? ORDER BY member_id",
+                Long.class, sessionId));
+        checkIn(sessionId, bearer(otherAdminId), issueQr(sessionId))
+                .andExpect(status().isCreated());
+        checkIn(sessionId, adminToken, issueQr(sessionId))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void registersOnlySessionSemesterRosterAsTargets() throws Exception {
         long notOnRoster = insertMemberWithoutRoster();
         long otherSemesterMember = insertMemberWithoutRoster();

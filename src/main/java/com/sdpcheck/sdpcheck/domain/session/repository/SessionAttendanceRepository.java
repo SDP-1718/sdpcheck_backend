@@ -38,7 +38,8 @@ public class SessionAttendanceRepository {
 	}
 
 	// Sessions created without a semester fall back to the current semester's roster.
-	public void registerSemesterMembersAsTargets(UUID sessionId) {
+	// Every roster member (MEMBER and ADMIN) is a target except the admin who started the session.
+	public void registerSemesterMembersAsTargets(UUID sessionId, long startedByMemberId) {
 		jdbc.update("""
 				INSERT INTO session_attendance_targets (session_id, member_id)
 				SELECT s.id, sm.member_id
@@ -48,9 +49,13 @@ public class SessionAttendanceRepository {
 					(SELECT id FROM semesters WHERE is_current = true)
 				)
 				JOIN members m ON m.id = sm.member_id
-				WHERE s.id = :sessionId AND m.role = 'MEMBER'
+				WHERE s.id = :sessionId
+					AND m.role IN ('MEMBER', 'ADMIN')
+					AND m.id <> :startedByMemberId
 				ON CONFLICT DO NOTHING
-				""", new MapSqlParameterSource("sessionId", sessionId));
+				""", new MapSqlParameterSource()
+				.addValue("sessionId", sessionId)
+				.addValue("startedByMemberId", startedByMemberId));
 	}
 
 	public boolean isTarget(UUID sessionId, long memberId) {

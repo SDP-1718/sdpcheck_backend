@@ -154,7 +154,7 @@ public class SessionService {
 	}
 
 	@Transactional
-	public StartSessionResDTO startSession(UUID sessionId) {
+	public StartSessionResDTO startSession(UUID sessionId, long startedByMemberId) {
 		if (sessionId == null) {
 			throw new SessionException(SessionErrorCode.SESSION_NOT_FOUND);
 		}
@@ -163,7 +163,7 @@ public class SessionService {
 
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
-		sessionAttendanceRepository.registerSemesterMembersAsTargets(sessionId);
+		sessionAttendanceRepository.registerSemesterMembersAsTargets(sessionId, startedByMemberId);
 
 		return StartSessionResDTO.from(session);
 	}

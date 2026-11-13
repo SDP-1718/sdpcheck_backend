@@ -7,6 +7,7 @@ import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeResponse;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeSummary;
 import com.sdpcheck.sdpcheck.domain.notice.repository.NoticeRepository;
 import com.sdpcheck.sdpcheck.domain.notice.exception.NoticeErrorCode;
+import com.sdpcheck.sdpcheck.domain.notification.PushNotificationService;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.CommonErrorCode;
 import org.springframework.stereotype.Service;
@@ -20,10 +21,13 @@ import java.util.UUID;
 public class NoticeService {
     private final NoticeRepository repository;
     private final NoticeImageService imageService;
+    private final PushNotificationService notifications;
 
-    public NoticeService(NoticeRepository repository, NoticeImageService imageService) {
+    public NoticeService(NoticeRepository repository, NoticeImageService imageService,
+                         PushNotificationService notifications) {
         this.repository = repository;
         this.imageService = imageService;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -46,6 +50,7 @@ public class NoticeService {
         }
         NoticeResponse created = repository.create(noticeId, title, content, pinned, authorId);
         var images = imageService.attach(noticeId, imageIds, authorId);
+        notifications.noticeCreated(noticeId, title);
         return new NoticeResponse(created.id(), created.title(), created.content(),
                 created.isPinned(), created.author(), images, created.createdAt(), created.updatedAt());
     }

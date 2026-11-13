@@ -25,6 +25,11 @@ services:
       OPENAI_ENABLED: ${OPENAI_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase/sdp-check-firebase-admin.json
+
+    volumes:
+      - ${FIREBASE_CREDENTIALS_DIR:-/home/ubuntu/sdpcheck-config/firebase}:/run/secrets/firebase:ro
 
     ports:
       - "8080:8080"

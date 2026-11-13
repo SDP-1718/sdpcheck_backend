@@ -6,6 +6,7 @@ import com.sdpcheck.sdpcheck.domain.member.entity.Member;
 import com.sdpcheck.sdpcheck.domain.member.enums.Role;
 import com.sdpcheck.sdpcheck.domain.member.repository.MemberRepository;
 import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberCommandService;
+import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberListQueryService;
 import com.sdpcheck.sdpcheck.domain.member.service.AdminMemberQueryService;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import com.sdpcheck.sdpcheck.global.exception.GlobalExceptionHandler;
@@ -55,6 +56,7 @@ class AdminMemberControllerTest {
     @MockitoBean MemberRepository members;
     @MockitoBean AdminMemberQueryService service;
     @MockitoBean AdminMemberCommandService commandService;
+    @MockitoBean AdminMemberListQueryService listQueryService;
 
     @Test
     void adminReceivesTheGenerationArrayInTheCommonEnvelopeWithoutCaching() throws Exception {
@@ -180,7 +182,7 @@ class AdminMemberControllerTest {
 
     @Test
     void directControllerCallsAlsoRejectMissingAndNonAdminPrincipals() {
-        var controller = new AdminMemberController(service, commandService);
+        var controller = new AdminMemberController(service, commandService, listQueryService);
         var missing = assertThrows(BusinessException.class, () -> controller.getMemberGenerations(null));
         assertEquals(AuthErrorCode.AUTHENTICATION_REQUIRED, missing.getErrorCode());
 

@@ -183,6 +183,29 @@ public class SessionService {
 		return EndSessionResDTO.from(session);
 	}
 
+	// Ends in-progress sessions once the check-in window after the scheduled start has closed,
+	// regardless of when the admin pressed start (e.g. 19:00 scheduled -> ends at 19:20).
+	@Transactional
+	public int autoEndExpiredSessions() {
+		OffsetDateTime now = OffsetDateTime.now();
+		int ended = 0;
+		for (UUID sessionId : sessionRepository.findInProgressIdsStartingAtOrBefore(now.minus(Session.CHECK_IN_WINDOW))) {
+			Optional<Session> locked = sessionRepository.findByIdForUpdate(sessionId)
+					.filter(session -> session.getDeletedAt() == null)
+					.filter(session -> session.getStatus() == SessionStatus.IN_PROGRESS)
+					.filter(session -> !now.isBefore(session.getCheckInClosesAt()));
+			if (locked.isEmpty()) {
+				continue;
+			}
+			Session session = locked.get();
+			OffsetDateTime closesAt = session.getCheckInClosesAt();
+			session.end(closesAt.isBefore(session.getStartedAt()) ? session.getStartedAt() : closesAt);
+			sessionAttendanceRepository.markRemainingTargetsAbsent(sessionId);
+			ended++;
+		}
+		return ended;
+	}
+
 	private Session findByIdForUpdate(UUID sessionId) {
 		return sessionRepository.findByIdForUpdate(sessionId)
 				.filter(session -> session.getDeletedAt() == null)
@@ -260,14 +283,12 @@ public class SessionService {
 		}
 	}
 
+	// Completed sessions may be deleted; soft-deleted sessions drop out of statistics and attendance history.
 	private void validateDeletable(Session session) {
 		if (session.getStatus() == SessionStatus.IN_PROGRESS) {
 			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_STARTED);
 		}
-		if (session.getStatus() != SessionStatus.SCHEDULED) {
-			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_ENDED);
-		}
-		if (hasAlreadyStarted(session)) {
+		if (session.getStatus() == SessionStatus.SCHEDULED && hasAlreadyStarted(session)) {
 			throw new SessionException(SessionErrorCode.SESSION_DELETE_ALREADY_STARTED);
 		}
 	}

@@ -38,6 +38,16 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
 			Pageable pageable
 	);
 
+	@Query("""
+			SELECT s.id FROM Session s
+			WHERE s.deletedAt IS NULL
+				AND s.cancelledAt IS NULL
+				AND s.startedAt IS NOT NULL
+				AND s.endedAt IS NULL
+				AND s.startsAt <= :startsAtOrBefore
+			""")
+	List<UUID> findInProgressIdsStartingAtOrBefore(@Param("startsAtOrBefore") OffsetDateTime startsAtOrBefore);
+
 	Optional<Session> findFirstByStartedAtIsNotNullAndEndedAtIsNullAndCancelledAtIsNullAndDeletedAtIsNullOrderByStartedAtDesc();
 
 	Optional<Session> findFirstByEndedAtIsNotNullAndCancelledAtIsNullAndDeletedAtIsNullOrderByEndedAtDesc();

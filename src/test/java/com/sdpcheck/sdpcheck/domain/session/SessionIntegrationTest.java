@@ -1,6 +1,7 @@
 package com.sdpcheck.sdpcheck.domain.session;
 
 import com.jayway.jsonpath.JsonPath;
+import com.sdpcheck.sdpcheck.domain.session.service.SessionService;
 import com.sdpcheck.sdpcheck.global.security.jwt.JwtProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
 
@@ -52,6 +54,7 @@ class SessionIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired JwtProvider jwtProvider;
+    @Autowired SessionService sessionService;
 
     private final LocalDate future = LocalDate.now().plusDays(7);
     private String adminToken;
@@ -195,6 +198,40 @@ class SessionIntegrationTest {
                 OffsetDateTime.class, id));
         assertEquals(0, jdbc.queryForObject(
                 "SELECT count(*) FROM schedule_items WHERE id = ?", Integer.class, id));
+    }
+
+    @Test
+    void softDeletesCompletedSession() throws Exception {
+        UUID id = UUID.fromString(JsonPath.read(create("종료 후 삭제할 세션", future, "10:00", "11:00", "세미나실")
+                .andReturn().getResponse().getContentAsString(), "$.result.sessionId"));
+        admin(post(BASE + "/" + id + "/start")).andExpect(status().isOk());
+        admin(post(BASE + "/" + id + "/end")).andExpect(status().isOk());
+
+        admin(delete(BASE + "/" + id)).andExpect(status().isNoContent());
+        admin(get(BASE + "/" + id)).andExpect(status().isNotFound());
+        assertNotNull(jdbc.queryForObject("SELECT deleted_at FROM study_sessions WHERE id = ?",
+                OffsetDateTime.class, id));
+    }
+
+    @Test
+    void autoEndsSessionTwentyMinutesAfterScheduledStart() {
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime expiredStartsAt = now.minusMinutes(25).truncatedTo(ChronoUnit.SECONDS);
+        UUID expired = insertSession("만료된 세션", expiredStartsAt, now.plusHours(1), null);
+        jdbc.update("UPDATE study_sessions SET started_at = ? WHERE id = ?", expiredStartsAt.minusMinutes(2), expired);
+        long target = insertMember("MEMBER");
+        jdbc.update("INSERT INTO session_attendance_targets (session_id, member_id) VALUES (?, ?)", expired, target);
+
+        UUID ongoing = insertSession("진행 중 세션", now.minusMinutes(10), now.plusHours(1), null);
+        jdbc.update("UPDATE study_sessions SET started_at = ? WHERE id = ?", now.minusMinutes(12), ongoing);
+
+        sessionService.autoEndExpiredSessions();
+
+        assertEquals(expiredStartsAt.plusMinutes(20).toInstant(), jdbc.queryForObject(
+                "SELECT ended_at FROM study_sessions WHERE id = ?", OffsetDateTime.class, expired).toInstant());
+        assertEquals("ABSENT", jdbc.queryForObject(
+                "SELECT status FROM attendances WHERE session_id = ? AND member_id = ?", String.class, expired, target));
+        assertNull(jdbc.queryForObject("SELECT ended_at FROM study_sessions WHERE id = ?", OffsetDateTime.class, ongoing));
     }
 
     @Test

@@ -15,6 +15,15 @@ local credential path. Never commit a service-account key. Spring's optional
 process environment used by Google's default credential lookup. Containers must
 mount the key read-only and set the path inside the container.
 
+Production Compose mounts `/home/ubuntu/sdpcheck-config/firebase` read-only at
+`/run/secrets/firebase`. Store the key there as `sdp-check-firebase-admin.json`
+and set `PUSH_ENABLED=true` in the server's `.env.prod`. The host directory may
+be overridden with `FIREBASE_CREDENTIALS_DIR`. The container credential path is
+provided by Compose. The application runs as container UID 10001: the mounted
+directory and key must be readable by that UID (for example, owner 10001:10001,
+directory mode 700 and key mode 600). A key owned only by ubuntu with mode 600
+will not be readable inside the container.
+
 Push defaults to disabled so tests and environments without Firebase credentials
 can start. Disabled environments do not enqueue notifications. Flyway applies V18
 on startup; no additional API endpoint is required.
@@ -34,6 +43,9 @@ Every message also includes `eventId=<type>:<resource UUID>` for client deduplic
 The client must handle foreground display, permission requests, routing after taps,
 token refresh registration and logout token deletion. iOS delivery additionally
 requires APNs configuration in the Firebase project.
+
+Production session targets include MEMBER and ADMIN semester members, excluding
+the admin who presses start, as defined by the existing session roster logic.
 
 ## Delivery and operations
 

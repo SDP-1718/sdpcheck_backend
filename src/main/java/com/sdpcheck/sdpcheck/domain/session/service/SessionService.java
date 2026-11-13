@@ -13,6 +13,7 @@ import com.sdpcheck.sdpcheck.domain.session.exception.SessionErrorCode;
 import com.sdpcheck.sdpcheck.domain.session.exception.SessionException;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionAttendanceRepository;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionRepository;
+import com.sdpcheck.sdpcheck.domain.notification.PushNotificationService;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionSemesterRepository;
 import com.sdpcheck.sdpcheck.domain.session.repository.SessionSemesterRepository.CurrentSemester;
 import java.time.DateTimeException;
@@ -57,15 +58,18 @@ public class SessionService {
 	private final SessionRepository sessionRepository;
 	private final SessionAttendanceRepository sessionAttendanceRepository;
 	private final SessionSemesterRepository sessionSemesterRepository;
+	private final PushNotificationService notifications;
 
 	public SessionService(
 			SessionRepository sessionRepository,
 			SessionAttendanceRepository sessionAttendanceRepository,
-			SessionSemesterRepository sessionSemesterRepository
+			SessionSemesterRepository sessionSemesterRepository,
+			PushNotificationService notifications
 	) {
 		this.sessionRepository = sessionRepository;
 		this.sessionAttendanceRepository = sessionAttendanceRepository;
 		this.sessionSemesterRepository = sessionSemesterRepository;
+		this.notifications = notifications;
 	}
 
 	public SessionDetailResDTO getSession(UUID sessionId) {
@@ -164,6 +168,7 @@ public class SessionService {
 		validateStartable(session);
 		session.start(OffsetDateTime.now());
 		sessionAttendanceRepository.registerSemesterMembersAsTargets(sessionId);
+		notifications.sessionStarted(sessionId, session.getTitle());
 
 		return StartSessionResDTO.from(session);
 	}

@@ -5,6 +5,7 @@ import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeAuthor;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeResponse;
 import com.sdpcheck.sdpcheck.domain.notice.dto.response.NoticeSummary;
 import com.sdpcheck.sdpcheck.domain.notice.repository.NoticeRepository;
+import com.sdpcheck.sdpcheck.domain.notification.PushNotificationService;
 import com.sdpcheck.sdpcheck.global.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -26,7 +27,8 @@ import static org.mockito.Mockito.when;
 class NoticeServiceTest {
     private final NoticeRepository repository = mock(NoticeRepository.class);
     private final NoticeImageService images = mock(NoticeImageService.class);
-    private final NoticeService service = new NoticeService(repository, images);
+    private final PushNotificationService notifications = mock(PushNotificationService.class);
+    private final NoticeService service = new NoticeService(repository, images, notifications);
     private final OffsetDateTime now = OffsetDateTime.parse("2026-10-08T12:00:00+09:00");
 
     @Test
@@ -40,12 +42,13 @@ class NoticeServiceTest {
 
         var created = service.create(request, 7L);
 
-        InOrder order = inOrder(repository, images);
+        InOrder order = inOrder(repository, images, notifications);
         order.verify(repository).lockPinSlot();
         order.verify(repository).unpinCurrent();
         order.verify(repository).create(any(UUID.class), eq("정기 세션 안내"), eq("본문"),
                 eq(true), eq(7L));
         order.verify(images).attach(any(UUID.class), eq(List.of()), eq(7L));
+        order.verify(notifications).noticeCreated(created.id(), "정기 세션 안내");
         assertEquals("7", created.author().id());
         assertEquals(now, created.createdAt());
     }
@@ -71,7 +74,7 @@ class NoticeServiceTest {
         assertThrows(BusinessException.class,
                 () -> service.create(new CreateNoticeRequest("공지", "본문", false,
                         List.of(id, id)), 7L));
-        verifyNoInteractions(images, repository);
+        verifyNoInteractions(images, repository, notifications);
     }
 
     @Test
